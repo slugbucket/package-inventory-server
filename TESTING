@@ -1,0 +1,94 @@
+The package comes with some unit tests to check the data GET and POST routines
+looking to check scenarios with bad data.
+
+This should be a simple test to check the headers, but it doesn't work:
+
+$ curl -v http://localhost:4567/package-inventory/flugelpop/packages.json -H 'Content-Type: application/json' -d '{"hostname": "flugelbob", "packages": {"phonon-qt5-gstreamer": "4.9.", "my-package": "1.2.", "your-package": "4.5.6-0."}}'
+
+Rack unit-test process.
+
+$ ruby PackageInventoryServerTest.rb
+oaded suite PackageInventoryServerTest
+Started
+GET: retrieved 3 packages.
+.Removing cache file for invtest if it exists.
+Flushing package entry for invtest
+Removing cache file for invtest if it exists.
+..
+
+Finished in 0.024175165 seconds.
+--------------------------------------------------------------------------------
+3 tests, 8 assertions, 0 failures, 0 errors, 0 pendings, 0 omissions, 0 notifications
+100% passed
+--------------------------------------------------------------------------------
+124.09 tests/s, 330.92 assertions/s
+
+RestClient upload test,
+
+$ ruby post-host-packages.rb
+{"hostname":"my-host","packages":[{"phonon-qt5-gstreamer":"4.9."},{"my-package":"1.2."},{"your-package":"4.5.6-0."}]}
+
+The test will fail if the cache file for the host does not exist; the test
+will complete if run again. I'm working on it.
+
+=======================================================
+
+Python cient-server testing
+
+-- Data preparation
+DELETE FROM host_package_versions WHERE host_id = '836' AND package_version_id = '1523';
+DELETE FROM hosts WHERE id = '836';
+DELETE FROM package_versions WHERE id IN ( '1523', '1524' );
+DELETE FROM packages WHERE id IN ( '2493', '2494', '2495' );
+DELETE FROM package_architectures WHERE name = 'Unknown' OR id = '5';
+
+INSERT INTO package_architectures(id, name, created_at, updated_at)
+  VALUES('5', 'Unknown', NOW(), NOW());
+INSERT INTO hosts(id, name, description, location_id)
+  VALUES('836', 'invtest', 'invtest server', '1');
+INSERT INTO packages(id, name, description, created_at, updated_at)
+  VALUES('2493', 'my-package', 'My Package', NOW(), NOW());
+INSERT INTO package_versions(id, name, package_id, package_architecture_id, created_at, updated_at)
+  VALUES('1523', '1.2.3', '2493', '5', NOW(), NOW());
+INSERT INTO packages(id, name, description, created_at, updated_at)
+  VALUES('2494', 'your-package', 'My Package', NOW(), NOW());
+INSERT INTO package_versions(id, name, package_id, package_architecture_id, created_at, updated_at)
+  VALUES('1524', '4.5.6', '2494', '5', NOW(), NOW());
+INSERT INTO host_package_versions(host_id, package_version_id) VALUES('836', '1523');
+
+-- Get a count of the number of installs of the package version on the hostname
+-- Anything over zero indicates it is installed
+
+-- Get a count of the number of installs of the package version on the hostname
+-- Anything over zero indicates it is installed
+SELECT SUM(hostcount), SUM(pvcount), SUM(pkgcount)
+FROM (
+SELECT COUNT(h.id) AS hostcount,
+          0 AS pvcount,
+          0 AS pkgcount
+FROM hosts h
+  INNER JOIN host_package_versions hpv
+    ON h.id = hpv.host_id
+  INNER JOIN package_versions pv
+      ON hpv.package_version_id = pv.id
+  INNER JOIN packages p
+      ON p.id = pv.package_id
+WHERE h.name = 'invtest'
+  AND pv.name = '1.2'
+  AND p.name = 'my-package'
+UNION
+SELECT 0 AS hostcount,
+       COUNT(pv.id) AS pvcount,
+       0 AS pkgcount
+FROM package_versions pv
+  INNER JOIN packages p
+    ON p.id = pv.package_id
+WHERE pv.name = '1.2'
+  AND p.name = 'my-package'
+UNION
+-- Get a count of the number of matching packages
+SELECT 0 AS hostcount,
+      0 AS pvcount,
+      COUNT(p.id) AS pkgcount
+FROM packages p
+WHERE p.name = 'my-package') AS t3;
