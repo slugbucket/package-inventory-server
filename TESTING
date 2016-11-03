@@ -34,6 +34,34 @@ will complete if run again. I'm working on it.
 =======================================================
 
 Python cient-server testing
+=====================================
+
+The database needs to the following structure:
+
+hosts
+-----
+id INT PK NN
+name CHAR
+description TEXT
+active BOOLEAN
+
+packages
+--------
+id INT PK NN
+name CHAR
+
+package_architectures
+---------------------
+id INT PK NN
+name CHAR
+description CHAR
+
+package_versions
+----------------
+id INT PK NN
+name CHAR
+package_id INT REFS packages
+package_architecture_id INT REFS package_architectures
 
 -- Data preparation
 DELETE FROM host_package_versions WHERE host_id = '836' AND package_version_id = '1523';
@@ -56,9 +84,13 @@ INSERT INTO package_versions(id, name, package_id, package_architecture_id, crea
   VALUES('1524', '4.5.6', '2494', '5', NOW(), NOW());
 INSERT INTO host_package_versions(host_id, package_version_id) VALUES('836', '1523');
 
--- Get a count of the number of installs of the package version on the hostname
--- Anything over zero indicates it is installed
-
+The download client works as a callout service in front of the database
+issuing requests to the inventory (cache) service for packages installed on
+a host. It needs to determine whether the host-package-version data it receives
+should trigger the creation of new database records for packages and versions;
+it will not create new host records.
+The following query can be used to determine what actions need to be
+performed.
 -- Get a count of the number of installs of the package version on the hostname
 -- Anything over zero indicates it is installed
 SELECT SUM(hostcount), SUM(pvcount), SUM(pkgcount)
@@ -92,3 +124,23 @@ SELECT 0 AS hostcount,
       COUNT(p.id) AS pkgcount
 FROM packages p
 WHERE p.name = 'my-package') AS t3;
+
+# There are four valid tuples we should receive from the query
+# (1, 1, 1): version of the package is installed on the host: associate version with host
+# (0, 1, 1): version of the package exists but is not installed: create new version
+# (0, 0, 1): version of the package does not exist: create new version
+# (0, 0, 0): no reference to package in database: create package, version and host mapping
+
+To verify that the seed data on the cache results in the expected content in the
+database, the package database server python Flask server is intended to be used
+for testing the download client and developing some examples of unittest.
+Unit test
+=========
+Create some sample database entries, start the inventory database service and
+check that it returns the expected results.
+
+Integration test
+================
+These tests will consist of posting data to the caching server and then
+requesting it using the download client to get it into the database and then
+requesting it from the database server.
