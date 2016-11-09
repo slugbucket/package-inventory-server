@@ -18,6 +18,7 @@
 /python/__pycache__
 /ruby/log/
 /python/log/
+/python/dbconf.py
 
 # Used by dotenv library to load environment variables.
 # .env

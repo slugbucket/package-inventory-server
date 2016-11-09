@@ -6,4 +6,4 @@
 # We force thie first default version of this file, but don't want the
 # specific details being included in future commits
 python/log/
-/dbconf.py
+dbconf.py
