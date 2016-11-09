@@ -7,6 +7,10 @@ require 'json'
 require 'rest-client'
 
 class PackageInventoryClient
+<<<<<<< HEAD
+=======
+  #attr_reader :hostname
+>>>>>>> 93b07321e60ba220cdb674da30fb4800fdc3d396
   @@flds
 
   def initialize
@@ -47,10 +51,20 @@ class PackageInventoryClient
   # returns:
   #   0 (success) or nil
   def get_packages( fields = [] )
+<<<<<<< HEAD
     @@flds = fields if fields.kind_of?(Array)
 
     @packages[:packages] = pacman_qi()
     #puts @packages[:packages].to_json
+=======
+    #@packages = {}
+    #@packages[:hostname] = `hostname`.chomp
+    @@flds = fields if fields.kind_of?(Array)
+
+    puts "Getting packages for #{@packages[:hostname]}"
+    @packages[:packages] = pacman_qi()
+    puts @packages[:packages].to_json
+>>>>>>> 93b07321e60ba220cdb674da30fb4800fdc3d396
   end
 
   # Bundle up the list of packages in to the following format
@@ -61,12 +75,25 @@ class PackageInventoryClient
   #    ]
   #  }
   def send_package_list
+<<<<<<< HEAD
     begin
+=======
+    # Move this to get_packages
+    #jdata = {}
+    #jdata[:hostname] = `hostname`.chop
+    #jdata[:hostname] = "invtest"
+    #jdata[:packages] = pacman_qi()
+    #puts jdata.to_json
+    begin
+      #resp = RestClient.post "http://localhost:4567/package-inventory/packages/new", jdata.to_json, :content_type => :json, :accept => :json
+   puts "action starts here"
+>>>>>>> 93b07321e60ba220cdb674da30fb4800fdc3d396
       resp = RestClient.post "http://localhost:4567/package-inventory/packages/new", @packages.to_json, :content_type => :json, :accept => :json
 
       STDOUT.print "send_package_list: #{resp.body}"
     rescue RestClient::BadRequest, RestClient::InternalServerError => e
       STDOUT.print "RestClient response: #{e.response}"
+    puts "and ends here"
     end
   end
 
