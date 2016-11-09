@@ -7,6 +7,6 @@
 #
 from PackageInventoryClient import PackageInventoryClient
 
-pic = PackageInventoryClient('localhost')
-pic.hostname
+pic = PackageInventoryClient()
+pic.get_packages()
 pic.send_package_list()
