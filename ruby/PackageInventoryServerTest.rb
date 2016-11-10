@@ -57,11 +57,13 @@ class PackageInventoryServerTest < Test::Unit::TestCase
     hostname = "invtest"
     jdata = {}
     jdata[:hostname] = hostname
-    jdata[:packages] = {}
-    ["phonon-qt5-gstreamer 4.9.0", "my-package 1.2.3", "your-package 4.5.6-0.1"].each do |pkg|
-      jdata[:packages].merge! Hash[*pkg.chop.split(/ /)]
-    end
-
+    jdata[:packages] =
+    [ { "Name" => "phonon-qt5-gstreamer", "Version" => "4.9.0", "Architecture" => "x86_64", "Description" => "GStreamer package", "URL" => "http://www.anywhere.com/" },
+      { "Name" => "my-package", "Version" => "1.2.3", "Architecture" => "noarch", "Description" => "My great package", "URL" => "http://www.overhere.com/my-package" },
+      { "Name" => "your-package", "Version" => "4.5.6-0.1", "Architecture" => "any", "Description" => "Your brilliant package", "URL" => "http://www.overthere.com/your-package" } ]
+      # .each do |pkg|jdata[:packages].merge! Hash[*pkg.chop.split(/ /)]
+    #end
+    puts jdata.to_json
     request = '/package-inventory/packages/new'
     headers = { 'CONTENT_TYPE' => 'application/json' }
     post request, jdata.to_json, headers
@@ -74,7 +76,7 @@ class PackageInventoryServerTest < Test::Unit::TestCase
     hostname = "invtest"
     get "/package-inventory/#{hostname}"
     assert_equal 200, last_response.status
-    expect = "{\"packages\":{\"phonon-qt5-gstreamer\":\"4.9.\",\"my-package\":\"1.2.\",\"your-package\":\"4.5.6-0.\"}}"
+    expect = "{\"packages\":[{\"Name\":\"phonon-qt5-gstreamer\",\"Version\":\"4.9.0\",\"Architecture\":\"x86_64\",\"Description\":\"GStreamer package\",\"URL\":\"http://www.anywhere.com/\"},{\"Name\":\"my-package\",\"Version\":\"1.2.3\",\"Architecture\":\"noarch\",\"Description\":\"My great package\",\"URL\":\"http://www.overhere.com/my-package\"},{\"Name\":\"your-package\",\"Version\":\"4.5.6-0.1\",\"Architecture\":\"any\",\"Description\":\"Your brilliant package\",\"URL\":\"http://www.overthere.com/your-package\"}]}"
     assert_equal expect, last_response.body
   end
 end

@@ -15,7 +15,8 @@ Installing ri documentation for daemons-1.2.4
 Parsing documentation for thin-1.7.0
 Installing ri documentation for thin-1.7.0
 Done installing documentation for eventmachine, daemons, thin after 11 seconds
-3 gems installed$ gem install sinatra
+3 gems installed
+$ gem install sinatra
 Fetching: rack-protection-1.5.3.gem (100%)
 Successfully installed rack-protection-1.5.3
 Fetching: sinatra-1.4.7.gem (100%)

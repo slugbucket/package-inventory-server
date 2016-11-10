@@ -50,7 +50,7 @@ class PackageInventoryClient
     @@flds = fields if fields.kind_of?(Array)
 
     @packages[:packages] = pacman_qi()
-    #puts @packages[:packages].to_json
+    puts @packages[:packages].to_json
   end
 
   # Bundle up the list of packages in to the following format
