@@ -11,7 +11,7 @@ class PackageInventoryClient
 
   def initialize
     @packages = Hash.new
-    @packages[:hostname] = `hostname`.chomp
+    @packages[:hostname] = "`hostname`.chomp"
   end
 
   # Method to be run on Arch Linux to probe read the local packages and extract
@@ -25,7 +25,7 @@ class PackageInventoryClient
     pkg = {}
     jdata = []
 
-    pkgs = open("|/usr/bin/pacman -Qi docker-machine zuki-themes").each do |pkgline|
+    pkgs = open("|/usr/bin/pacman -Qi docker-machine zuki-themes alsa-utils alsa-plugins alsa-lib").each do |pkgline|
       if pkgline.match(/^$/) then
         jdata << pkg
         pkg = {}
