@@ -9,8 +9,8 @@ import re
 class PackageInventoryClient:
   def __init__( self ):
     self._hostname = platform.node()
-    self._distro = platform.linux_distribution()[0]
-    self.packages = {}
+    self._distro   = platform.linux_distribution()[0]
+    self.packages  = {}
 
   #def __init__( self, name ):
   #  self._hostname = name
@@ -33,23 +33,9 @@ class PackageInventoryClient:
 
   hostname = property(gethostname, sethostname, delhostname, )
 
-  # Method to determine which distro this is running on so that we can
-  # know which package invemtory method to invoke
-  #def distro():
-    #  doc = "The Linux distribution name."
-    #  def fget(self):
-    #      return self._distro
-    #  def fset(self, value):
-    #      self._distro = value
-    #  def fdel(self):
-    #      del self._distro
-    #  return locals()
-
-  #distro = property(**distro())
-
   def get_packages(self, captions=('Name', 'Version', 'Description')):
       #print ( distro() )
-      self._packages = {
+      self.packages = {
         'Antergos Linux': self.pacman_qi(captions),
         'b': True,
         'c': True
@@ -132,16 +118,11 @@ class PackageInventoryClient:
   # {"packages": [{"phonon-qt5-gstreamer": "4.9.0"}, {"my-package": ...}
   def send_package_list(self):
       jdata = {}
-      jdata['hostname'] = self.hostname
+      jdata['hostname'] = self._hostname
       jdata['packages'] = self.packages
-      ##pkgs = open("|pacman -Q").each do |pkg|
-      #pkglist = ["phonon-qt5-gstreamer 4.9.0", "my-package 1.2.3", "your-package 4.5.6-0.1"]
-      #for pkg in pkglist:
-        #  (k, v) = pkg.split(" ")
-        #  jdata['packages'].append( {k: v} )
 
       try:
-        resp = requests.post( "http://localhost:5000/package-inventory/packages/new", data=json.JSONEncoder().encode( jdata ) )
+        resp = requests.post( "http://localhost:5000/package-inventory/packages/new", data=json.JSONEncoder().encode( jdata ), headers={'Content-Type': 'application/json'})
         print( "send_package_list: " + str( resp.text ) )
 
       except requests.exceptions as err:

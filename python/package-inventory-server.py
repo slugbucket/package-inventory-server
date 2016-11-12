@@ -14,22 +14,29 @@ def get_inventory_package(hostname):
     else:
         abort(404)
 
-@app.route('/package-inventory/<hostname>/new', methods=["POST"])
-def post_inventory_package(hostname):
-    if not validate_input(request.data):
+@app.route('/package-inventory/packages/new', methods=["POST"])
+def post_inventory_package():
+    if validate_input(request) == False:
         abort(400)
+    jdata = request.get_json()
 
+    if (jdata['hostname'] != None):
+        hostname = jdata['hostname']
+    else:
+        hostname = request.host
     fn = "cache/%s" % hostname
     fh = open(fn ,"w")
-    print( "Writing submission to %s" % fn )
-    if fh.write( str( request.data ) ):
-        st = "{\"status\":\"Received 3 packages for %s.\"}" % hostname
+    if fh.write( str(request.data, 'utf-8') ):
+        st = "{\"status\":\"Received packages for %s.\"}" % hostname
         return ( st )
     else:
         abort(400)
 
 # Method to check that the input data matches expectations
-def validate_input(data):
+def validate_input(request):
+    if( request.is_json == False ):
+        return False
+
     return 1
 
 if __name__ == "__main__":

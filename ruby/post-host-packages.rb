@@ -11,19 +11,23 @@ class PackageInventoryClient
 
   def initialize
     @packages = Hash.new
-    @packages[:hostname] = "`hostname`.chomp"
+    @packages[:hostname] = `hostname`.chomp
   end
 
   # Method to be run on Arch Linux to probe read the local packages and extract
-  # the fields we are interested in
+  # the fields we are interested in. The format of pacman -Qi output is like
+  # Name           : zita-alsa-pcmi
+  # Version        : 0.2.0-3
+  # The RE match relies on there being at least two spaces before the :
   # params:
   #  None
   # returns:
   #  Array of hashes each of the form: {field1 => val1, field2 => val2, ...}
   def pacman_qi
-    pattern = /(.*)\b([ ]{2,}:) (.*)$/
-    pkg = {}
-    jdata = []
+    #pattern = /(.*)\b([ ]{2,}:) (.*)$/
+    pattern = /(.*)\b[ ]{2,}: (.*)$/
+    pkg     = {}
+    jdata   = []
 
     pkgs = open("|/usr/bin/pacman -Qi docker-machine zuki-themes alsa-utils alsa-plugins alsa-lib").each do |pkgline|
       if pkgline.match(/^$/) then
@@ -31,10 +35,7 @@ class PackageInventoryClient
         pkg = {}
       end
       pkgline.gsub!( pattern ) do
-        k = $1
-        v = $3
-        #puts "pacman_qi: Saving pkg setting #{k} with value #{v}" if @@flds.include?(k)
-        pkg[k] = v if @@flds.include?(k)
+        pkg[$1] = $2 if @@flds.include?($1)
       end
     end
     return jdata
