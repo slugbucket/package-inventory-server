@@ -10,6 +10,7 @@ class PackageInventoryClient:
   def __init__( self ):
     self._hostname = platform.node()
     self._distro = platform.linux_distribution()[0]
+    self.packages = {}
 
   #def __init__( self, name ):
   #  self._hostname = name
@@ -46,23 +47,13 @@ class PackageInventoryClient:
 
   #distro = property(**distro())
 
-  def get_packages(self):
+  def get_packages(self, captions=('Name', 'Version', 'Description')):
       #print ( distro() )
       self._packages = {
-        'Antergos Linux': self.pacman(),
+        'Antergos Linux': self.pacman_qi(captions),
         'b': True,
         'c': True
       }[self._distro]
-
-  # Method to run a system command and save the output for processing
-  def run_command(self, command):
-      #p = subprocess.check_output(command.split(),
-      p = subprocess.run(command.split(),
-                           bufsize=1,
-                           stdout=subprocess.PIPE)
-                           #stderr=subprocess.STDOUT)
-      #return iter(p.stdout.readline, b'')
-      return( p.stdout )
 
   # Method to extract package details from pacman -Qi <pkgnme>
   # typically looking like:
@@ -94,37 +85,60 @@ class PackageInventoryClient:
   #Validated By    : Signature
   # We don't need all of these but we'll return an array containing
   # name, version, description, architecture, url, license
-  def _pacman_qi_split(self, pqi):
-      print( "pacman_qi_split: splitting " + pqi)
+  #
+  # written by mhrawcliffe
+  def pacman_qi(self, captions):
+      """
+      Takes a multiline string as input
 
-  def pacman(self):
-      print( "Getting ArchLinux packages.")
-      #proc = subprocess.Popen(['/usr/bin/pacman', '-Qi'], stdout=subprocess.PIPE, bufsize=0)
-      #tmp = proc.stdout().read()
-      #pkgs = subprocess.Popen(["/usr/bin/pacman", "-Qi"], stdout=subprocess.PIPE).stdout().read()
-      #for pkgi in pkgs:
-      #    pass
-      pkgs = self.run_command('/usr/bin/pacman -Qi docker-machine')
-      pkg = ""
-      for pkgi in pkgs.split( '\n', pkgs):
-          print( "line: {}".format(pkgi))
-          if( re.search( '^$', pkgi ) ):
-              self._pacman_qi_split(pkg)
-              pkg = ""
-          else:
-              pkg += pkgi
+      Returns a list of dictionaries pertaining to the output
+      with keys matching the captions passed as input.
+      """
+      output = subprocess.getoutput("pacman -Qi")
+      packages = []
+      # group packages together
+      for package in output.split('\n\n'):
+          caption = ""
+          current_package = {}
+          # each line in the package grouping
+          for line in package.split('\n'):
+              # match initial line e.g. Caption  : Info
+              info = re.match(r'^([A-Za-z]+)\s*:\s+(.*)$', line)
+              if info:
+                  # if its a definition, add to the dict
+                  caption = info.group(1)
+                  current_package[caption] = info.group(2)
+              else:
+                  # is it a continuation of a caption,
+                  # i.e. zuki-themes description 2nd line
+                  info = re.match(r'^\s+(.*)$', line)
+                  if info and caption:
+                      # append the info to the respective caption
+                      current_package[caption] += ' ' + info.group(1)
+                  elif not caption:
+                      # no caption has been defined so this is stray output
+                      raise ValueError("Malformed pacman output")
+
+          # add the related info to the packages list as a dict
+          # with only relevant captions, using a dict comprehension
+          packages.append({
+              caption: value for caption, value in current_package.items()
+              if caption in captions
+          })
+
+      return packages
 
   # Bundle up the list of packages in to the following format
   # {"packages": [{"phonon-qt5-gstreamer": "4.9.0"}, {"my-package": ...}
   def send_package_list(self):
       jdata = {}
       jdata['hostname'] = self.hostname
-      jdata['packages'] = []
-      #pkgs = open("|pacman -Q").each do |pkg|
-      pkglist = ["phonon-qt5-gstreamer 4.9.0", "my-package 1.2.3", "your-package 4.5.6-0.1"]
-      for pkg in pkglist:
-          (k, v) = pkg.split(" ")
-          jdata['packages'].append( {k: v} )
+      jdata['packages'] = self.packages
+      ##pkgs = open("|pacman -Q").each do |pkg|
+      #pkglist = ["phonon-qt5-gstreamer 4.9.0", "my-package 1.2.3", "your-package 4.5.6-0.1"]
+      #for pkg in pkglist:
+        #  (k, v) = pkg.split(" ")
+        #  jdata['packages'].append( {k: v} )
 
       try:
         resp = requests.post( "http://localhost:5000/package-inventory/packages/new", data=json.JSONEncoder().encode( jdata ) )

@@ -91,11 +91,11 @@ pkgqry = (
     "SELECT SUM(hostcount) AS hpv, SUM(pvcount) AS pv, SUM(pkgcount) AS p "
     "FROM "
     "(SELECT COUNT(h.id) AS hostcount, "
-    "        0 AS pvcount, "
-    "        0 AS pkgcount "
+    "                  0 AS pvcount, "
+    "                  0 AS pkgcount "
     "FROM hosts h "
     "  INNER JOIN host_package_versions hpv "
-    "  ON h.id = hpv.host_id "
+    "    ON h.id = hpv.host_id "
     "  INNER JOIN package_versions pv "
     "    ON hpv.package_version_id = pv.id "
     "  INNER JOIN packages p "
@@ -104,17 +104,17 @@ pkgqry = (
     "  AND pv.name = %s "
     "  AND p.name  = %s "
     "UNION "
-    "SELECT 0 AS hostcount, "
+    "SELECT            0 AS hostcount, "
     "       COUNT(pv.id) AS pvcount, "
-    "       0 AS pkgcount "
+    "                  0 AS pkgcount "
     "FROM package_versions pv "
     "  INNER JOIN packages p "
     "    ON pv.package_id = p.id "
     "WHERE pv.name = %s "
     "  AND p.name  = %s "
     "UNION "
-    "SELECT 0 AS hostcount, "
-    "       0 AS pvcount, "
+    "SELECT           0 AS hostcount, "
+    "                 0 AS pvcount, "
     "       COUNT(p.id) AS pkgcount "
     "FROM packages p "
     "WHERE p.name  = %s) AS t1" )
@@ -140,7 +140,7 @@ for (hostname, description) in cursor:
             vers = p['Version']
             desc = p['Description']
             arch = p['Architecture']
-            print( "package: %s, version: %s, description: %s\n" % ( pkg, vers, desc ) )
+            #print( "package: %s, version: %s, description: %s\n" % ( pkg, vers, desc ) )
             try:
                 pass
                 pkgcur.execute( pkgqry, ( hostname, vers, pkg, vers, pkg, pkg) )
@@ -150,7 +150,7 @@ for (hostname, description) in cursor:
                 elif err.errno == 1064:
                     print( "SQL error: " + str( err.text ))
                 else:
-                    print( "Database error (" + str( err.errno ) + "): " + str( err ) )
+                    print( "Database error (" + str( err.errno ) + "): " + str( err.text ) )
 
             for ( hpv, pv, p ) in pkgcur:
                 print( "On host: %s, version exists: %s, package exists: %s.\n" % ( hpv, int( pv ), int( p ) ) )

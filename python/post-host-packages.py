@@ -8,5 +8,5 @@
 from PackageInventoryClient import PackageInventoryClient
 
 pic = PackageInventoryClient()
-pic.get_packages()
+pic.get_packages(('Name', 'Version', 'Description', 'Architecture', 'URL'))
 pic.send_package_list()
