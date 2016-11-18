@@ -34,12 +34,45 @@ class PackageInventoryClient:
   hostname = property(gethostname, sethostname, delhostname, )
 
   def get_packages(self, captions=('Name', 'Version', 'Description')):
-      #print ( distro() )
-      self.packages = {
-        'Antergos Linux': self.pacman_qi(captions),
-        'b': True,
-        'c': True
-      }[self._distro]
+        if self._distro == 'Antergos Linux':
+            self.packages = self.pacman_qi(captions)
+        elif self._distro == 'debian':
+            print("Fetching debian package list.")
+            self.packages = self.dpkg_l(captions)
+        else:
+            return []
+
+  # Method to extract package details from dpkg -l
+  # typically in the format
+  # ii  acl                                 2.2.52-2                   armhf        Access control list utilities
+  # ii  adduser                             3.113+nmu3                 all          add and remove users and groups
+  # The format of dpkg output is such that we can't use the captions to
+  # match against the package value; on raspbian at least, dpkg-query --show --showformat "..." doesn't give any output
+  # params:
+  #   captions: Array: Headings for values to be captured
+  # returns:
+  #  Array of dicts containing keys and values for each package
+  def dpkg_l(self, captions):
+    packages = []
+    output = subprocess.getoutput("dpkg -l")
+    for pkgline in output.split('\n'):
+        print("Matching against: " + pkgline)
+        patt = re.compile('ii\s+([^\s]+)\s+([^\s]+)\s+([^\s]+)\s+(.*)')
+        pary = patt.match(pkgline)
+        if pary:
+            #name = pary.group(1)
+            #vers = pary.group(2)
+            #arch = pary.group(3)
+            #desc = pary.group(4)
+            #print("Package name: " + str(name) + ":" + vers + ":" + arch +".")
+
+            packages.append({ 'Name': pary.group(1), 'Version': pary.group(2), 'Architecture': pary.group(3), 'Description':  pary.group(4) })
+            print( json.JSONEncoder().encode( { 'Name': pary.group(1), 'Version': pary.group(2), 'Architecture': pary.group(3), 'Description':  pary.group(4) } ) )
+        else:
+            print("No match found for " + pkgline + ".")
+
+    print("Sending " + str( len(packages)) + " to server")
+    return(packages)
 
   # Method to extract package details from pacman -Qi <pkgnme>
   # typically looking like:
@@ -122,7 +155,7 @@ class PackageInventoryClient:
       jdata['packages'] = self.packages
 
       try:
-        resp = requests.post( "http://localhost:5000/package-inventory/packages/new", data=json.JSONEncoder().encode( jdata ), headers={'Content-Type': 'application/json'})
+        resp = requests.post( "http://192.168.1.126:5000/package-inventory/packages/new", data=json.JSONEncoder().encode( jdata ), headers={'Content-Type': 'application/json'})
         print( "send_package_list: " + str( resp.text ) )
 
       except requests.exceptions as err:

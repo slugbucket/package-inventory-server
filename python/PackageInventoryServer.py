@@ -1,3 +1,9 @@
+#!/usr/bin/env python
+#
+# Run the server with 
+# $ export FLASK_APP=PackageInventoryServer.py 
+# $ flask run --host=0.0.0.0
+#
 from flask import Flask, abort, request
 import os.path
 
