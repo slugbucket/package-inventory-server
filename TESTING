@@ -93,11 +93,12 @@ The following query can be used to determine what actions need to be
 performed.
 -- Get a count of the number of installs of the package version on the hostname
 -- Anything over zero indicates it is installed
-SELECT SUM(hostcount), SUM(pvcount), SUM(pkgcount)
+SELECT SUM(hostcount), SUM(pvcount), SUM(pkgcount), SUM(archcount)
 FROM (
 SELECT COUNT(h.id) AS hostcount,
           0 AS pvcount,
-          0 AS pkgcount
+          0 AS pkgcount,
+          0 AS archcount
 FROM hosts h
   INNER JOIN host_package_versions hpv
     ON h.id = hpv.host_id
@@ -111,7 +112,8 @@ WHERE h.name = 'invtest'
 UNION
 SELECT 0 AS hostcount,
        COUNT(pv.id) AS pvcount,
-       0 AS pkgcount
+       0 AS pkgcount,
+       0 AS archcount
 FROM package_versions pv
   INNER JOIN packages p
     ON p.id = pv.package_id
@@ -120,16 +122,25 @@ WHERE pv.name = '1.2'
 UNION
 -- Get a count of the number of matching packages
 SELECT 0 AS hostcount,
-      0 AS pvcount,
-      COUNT(p.id) AS pkgcount
+       0 AS pvcount,
+       COUNT(p.id) AS pkgcount,
+       0 AS archcount
 FROM packages p
-WHERE p.name = 'my-package') AS t3;
+WHERE p.name = 'my-package'
+UNION
+SELECT           0 AS hostcount,
+                 0 AS pvcount,
+                 0 AS pkgcount,
+      COUNT(pa.id) AS archcount
+FROM package_architectures pa
+WHERE pa.name = %s) AS t3;
 
-# There are four valid tuples we should receive from the query
-# (1, 1, 1): version of the package is installed on the host: associate version with host
-# (0, 1, 1): version of the package exists but is not installed: create new version
-# (0, 0, 1): version of the package does not exist: create new version
-# (0, 0, 0): no reference to package in database: create package, version and host mapping
+# There are 5 valid tuples we should receive from the query (x = don't care)
+# (1, 1, 1, x): version of the package is installed on the host: associate version with host
+# (0, 1, 1, x): version of the package exists but is not installed: create new version
+# (0, 0, 1, x): version of the package does not exist: create new version
+# (0, 0, 0, x): no reference to package in database: create package, version and host mapping
+# (x, x, x, 0): package architecture record not found, create new entry
 
 To verify that the seed data on the cache results in the expected content in the
 database, the package database server python Flask server is intended to be used

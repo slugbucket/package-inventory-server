@@ -27,7 +27,7 @@ cnx = dbconf.dbconnect()
 # params:
 #  dbh: database handle
 #  name: string: name of the package
-#  descr: string: package descriptiom
+#  descr: string: package description
 # returns:
 #   void
 def add_package( dbh = None, name = None, descr = None ):
@@ -35,6 +35,22 @@ def add_package( dbh = None, name = None, descr = None ):
                "VALUES( %s, %s, NOW(), NOW())" )
     dbh.execute( insert, ( name, descr) )
     #print( "add_package: Added package, %s" % name )
+
+# Method to add a new package_architecture record to the database
+# params:
+#  dbh: database handle
+#  name: string: name of the package
+# returns:
+#   void
+def add_package_architecture( dbh = None, name = None ):
+    insert = ( "INSERT INTO package_architectures"
+                "(name, created_at, updated_at)  "
+                "VALUES( %s, NOW(), NOW())       " )
+    #print( "add_package_architecture: Added package arch, %s" % name )
+    try:
+        dbh.execute( insert, ( name, ) )
+    except:
+        print( "Error with query: %s." % dbh.statement )
 
 # Method to add a new package version record to the database
 # params:
@@ -69,7 +85,7 @@ def add_host_package_version( dbh = None, host = None, vers = None, pkg = None )
               "INNER JOIN packages p ON pv.package_id = p.id "
               "WHERE h.name = %s AND pv.name = %s AND p.name = %s")
     dbh.execute( insert, ( host, vers, pkg ) )
-    #print( "add_host_package_version: Added host package version for %s" % host )
+    #print( "add_host_package_version: Added host package version for %s with %s" % (host, dbh.statement) )
 
 # Use buffered = True to avoid 'Unread result found' error
 cursor = cnx.cursor()
@@ -83,46 +99,61 @@ query = ("SELECT h1.name, h1.description FROM hosts h1 INNER JOIN locations l1 "
 # Get a count of the number of installs of the pack"age version on the hostname
 # Anything over zero indicates it is installed
 # There are four valid tuples we should receive from the query
-# (1, 1, 1): version of the package is installed on the host: no action needed
-# (0, 1, 1): version of the package exists but is not installed: create new association
-# (0, 0, 1): version of the package does not exist: create new version
-# (0, 0, 0): no reference to package in database: create package, version and host mapping
+# (1, 1, 1, x): version of the package is installed on the host: no action needed
+# (0, 1, 1, x): version of the package exists but is not installed: create new association
+# (0, 0, 1, x): version of the package does not exist: create new version
+# (0, 0, 0, x): no reference to package in database: create package, version and host mapping
+# (x, x, x, 0): package architecture record not found, create new entry
 pkgqry = (
-    "SELECT SUM(hostcount) AS hpv, SUM(pvcount) AS pv, SUM(pkgcount) AS p "
-    "FROM "
-    "(SELECT COUNT(h.id) AS hostcount, "
-    "                  0 AS pvcount, "
-    "                  0 AS pkgcount "
-    "FROM hosts h "
+    "SELECT SUM(hostcount) AS hpv,          "
+    "       SUM(pvcount)   AS pv,           "
+    "       SUM(pkgcount)  AS p,            "
+    "       SUM(archcount) AS a             "
+    "FROM                                   "
+    "(SELECT COUNT(h.id) AS hostcount,      "
+    "                  0 AS pvcount,        "
+    "                  0 AS pkgcount,       "
+    "                  0 AS archcount       "
+    "FROM hosts h                           "
     "  INNER JOIN host_package_versions hpv "
-    "    ON h.id = hpv.host_id "
-    "  INNER JOIN package_versions pv "
-    "    ON hpv.package_version_id = pv.id "
-    "  INNER JOIN packages p "
-    "    ON pv.package_id = p.id "
-    "WHERE h.name  = %s "
-    "  AND pv.name = %s "
-    "  AND p.name  = %s "
-    "UNION "
-    "SELECT            0 AS hostcount, "
-    "       COUNT(pv.id) AS pvcount, "
-    "                  0 AS pkgcount "
-    "FROM package_versions pv "
-    "  INNER JOIN packages p "
-    "    ON pv.package_id = p.id "
-    "WHERE pv.name = %s "
-    "  AND p.name  = %s "
-    "UNION "
-    "SELECT           0 AS hostcount, "
-    "                 0 AS pvcount, "
-    "       COUNT(p.id) AS pkgcount "
-    "FROM packages p "
-    "WHERE p.name  = %s) AS t1" )
+    "    ON h.id = hpv.host_id              "
+    "  INNER JOIN package_versions pv       "
+    "    ON hpv.package_version_id = pv.id  "
+    "  INNER JOIN packages p                "
+    "    ON pv.package_id = p.id            "
+    "WHERE h.name  = %s                     "
+    "  AND pv.name = %s                     "
+    "  AND p.name  = %s                     "
+    "UNION                                  "
+    "SELECT            0 AS hostcount,      "
+    "       COUNT(pv.id) AS pvcount,        "
+    "                  0 AS pkgcount,       "
+    "                  0 AS archcount       "
+    "FROM package_versions pv               "
+    "  INNER JOIN packages p                "
+    "    ON pv.package_id = p.id            "
+    "WHERE pv.name = %s                     "
+    "  AND p.name  = %s                     "
+    "UNION                                  "
+    "SELECT           0 AS hostcount,       "
+    "                 0 AS pvcount,         "
+    "       COUNT(p.id) AS pkgcount,        "
+    "                 0 AS archcount        "
+    "FROM packages p                        "
+    "WHERE p.name  = %s                     "
+    "UNION                                  "
+    "SELECT           0 AS hostcount,       "
+    "                 0 AS pvcount,         "
+    "                 0 AS pkgcount,        "
+    "      COUNT(pa.id) AS archcount        "
+    "FROM package_architectures pa          "
+    "WHERE pa.name = %s)                    "
+    "AS t1                                  " )
 
 datacenter = "primary-dc"
 cursor.execute(query, (datacenter, ) )
 for (hostname, description) in cursor:
-    url = "http://localhost:4567/package-inventory/" + hostname
+    url = "http://localhost:5000/package-inventory/" + hostname
     r = requests.get( url )
 
     if r.status_code == 200:
@@ -142,8 +173,8 @@ for (hostname, description) in cursor:
             arch = p['Architecture']
             #print( "package: %s, version: %s, description: %s\n" % ( pkg, vers, desc ) )
             try:
-                pass
-                pkgcur.execute( pkgqry, ( hostname, vers, pkg, vers, pkg, pkg) )
+                #pass
+                pkgcur.execute( pkgqry, ( hostname, vers, pkg, vers, pkg, pkg, arch) )
             except mysql.connector.Error as err:
                 if err.errno == ER_INTERNAL_ERROR:
                     print( "Internal error: " + str( err.text) )
@@ -152,10 +183,12 @@ for (hostname, description) in cursor:
                 else:
                     print( "Database error (" + str( err.errno ) + "): " + str( err.text ) )
 
-            for ( hpv, pv, p ) in pkgcur:
-                print( "On host: %s, version exists: %s, package exists: %s.\n" % ( hpv, int( pv ), int( p ) ) )
+            for ( hpv, pv, p, a ) in pkgcur:
+                print( "On host: %s, version exists: %s, package %s exists.\n" % ( hpv, int( pv ), pkg ) )
                 if int( p ) == 0:
                     add_package( pkgcur, pkg, desc )
+                if int( a ) == 0:
+                    add_package_architecture( pkgcur, arch )
                 if int( pv ) == 0:
                     add_package_version( pkgcur, vers, pkg, arch )
                 if int( hpv ) == 0:
