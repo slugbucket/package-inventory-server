@@ -133,7 +133,7 @@ SELECT           0 AS hostcount,
                  0 AS pkgcount,
       COUNT(pa.id) AS archcount
 FROM package_architectures pa
-WHERE pa.name = %s) AS t3;
+WHERE pa.name = 'any') AS t3;
 
 # There are 5 valid tuples we should receive from the query (x = don't care)
 # (1, 1, 1, x): version of the package is installed on the host: associate version with host

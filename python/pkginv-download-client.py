@@ -12,7 +12,7 @@ import json
 # from restful_lib import Connection
 # http://docs.python-requests.org/en/master/
 import requests
-
+import mysql.connector
 # Database connection details stored separately
 import dbconf
 cnx = dbconf.dbconnect()
@@ -47,10 +47,7 @@ def add_package_architecture( dbh = None, name = None ):
                 "(name, created_at, updated_at)  "
                 "VALUES( %s, NOW(), NOW())       " )
     #print( "add_package_architecture: Added package arch, %s" % name )
-    try:
-        dbh.execute( insert, ( name, ) )
-    except:
-        print( "Error with query: %s." % dbh.statement )
+    dbh.execute( insert, ( name, ) )
 
 # Method to add a new package version record to the database
 # params:
@@ -88,11 +85,12 @@ def add_host_package_version( dbh = None, host = None, vers = None, pkg = None )
     #print( "add_host_package_version: Added host package version for %s with %s" % (host, dbh.statement) )
 
 # Use buffered = True to avoid 'Unread result found' error
-cursor = cnx.cursor()
+cursor = cnx.cursor( buffered = True )
 pkgcur = cnx.cursor( buffered = True )
 
-query = ("SELECT h1.name, h1.description FROM hosts h1 INNER JOIN locations l1 "
-     "ON h1.location_id = l1.id WHERE l1.name = %s")
+query = ("SELECT h1.name, h1.description              "
+         "FROM hosts h1 INNER JOIN locations l1       "
+         "ON h1.location_id = l1.id WHERE l1.name = %s")
 
 # Now see if there is a reference to the package an"d version in the
 # database
@@ -175,13 +173,17 @@ for (hostname, description) in cursor:
             try:
                 #pass
                 pkgcur.execute( pkgqry, ( hostname, vers, pkg, vers, pkg, pkg, arch) )
-            except mysql.connector.Error as err:
-                if err.errno == ER_INTERNAL_ERROR:
-                    print( "Internal error: " + str( err.text) )
-                elif err.errno == 1064:
-                    print( "SQL error: " + str( err.text ))
-                else:
-                    print( "Database error (" + str( err.errno ) + "): " + str( err.text ) )
+            except mysql.connector.errors.InternalError as err:
+                print("A database internal error occurred: %s." % err.msg)
+                exit(1)
+            #except cnx.InternalError as err:
+            #    if err.errno == ER_INTERNAL_ERROR:
+            #        print( "Internal error: " + str( err.text) )
+            #        exit(err.errno)
+            #    elif err.errno == 1064:
+            #        print( "SQL error: " + str( err.text ))
+            #    else:
+            #        print( "Database error (" + str( err.errno ) + "): " + str( err.text ) )
 
             for ( hpv, pv, p, a ) in pkgcur:
                 print( "On host: %s, version exists: %s, package %s exists.\n" % ( hpv, int( pv ), pkg ) )
