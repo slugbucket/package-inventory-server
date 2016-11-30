@@ -12,6 +12,7 @@ import json
 # from restful_lib import Connection
 # http://docs.python-requests.org/en/master/
 import requests
+# Make sure we have access to the exceptions
 import mysql.connector
 # Database connection details stored separately
 import dbconf
@@ -155,35 +156,17 @@ for (hostname, description) in cursor:
     r = requests.get( url )
 
     if r.status_code == 200:
-        #print( r.text + " with status " + str( r.status_code ) )
         js = json.loads( r.text )
-        #pkgs = js['packages']
-        #print( "packages are: " + str( pkgs ) )
-        # process a list of the form
-        # [{'phonon-qt5-gstreamer': '4.9.0'}, {'my-package': '1.2.3'}...]
         for p in js['packages']:
-            #print( "The extracted package is " + str(p))
-            # Process the package components as single element dictionaries
-            #for pkg, vers, descr, arch, url in p.items():
             pkg  = p['Name']
             vers = p['Version']
             desc = p['Description']
             arch = p['Architecture']
-            #print( "package: %s, version: %s, description: %s\n" % ( pkg, vers, desc ) )
             try:
-                #pass
                 pkgcur.execute( pkgqry, ( hostname, vers, pkg, vers, pkg, pkg, arch) )
             except mysql.connector.errors.InternalError as err:
                 print("A database internal error occurred: %s." % err.msg)
                 exit(1)
-            #except cnx.InternalError as err:
-            #    if err.errno == ER_INTERNAL_ERROR:
-            #        print( "Internal error: " + str( err.text) )
-            #        exit(err.errno)
-            #    elif err.errno == 1064:
-            #        print( "SQL error: " + str( err.text ))
-            #    else:
-            #        print( "Database error (" + str( err.errno ) + "): " + str( err.text ) )
 
             for ( hpv, pv, p, a ) in pkgcur:
                 print( "On host: %s, version exists: %s, package %s exists.\n" % ( hpv, int( pv ), pkg ) )

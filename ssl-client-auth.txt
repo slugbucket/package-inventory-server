@@ -1,0 +1,142 @@
+Client cert signing
+===================
+Python-based local certificate authority (CA).
+
+https://jamielinux.com/docs/openssl-certificate-authority/
+$ mkdir root-ca
+$ cd root-ca
+$ mkdir certs crl newcerts private
+$ chmod 700 private
+$ touch index.txt
+$ echo 1000 > serial
+
+Create a configuration specific to the root CA.
+Copy https://jamielinux.com/docs/openssl-certificate-authority/_downloads/root-config.txt
+to root-ca-openssl.conf amending the top level dir entry as appropriate.
+
+$ openssl genrsa -aes256 -out private/ca.key.pem 4096
+$ chmod 400 private/ca.key.pem
+
+Enter the priavte key passphrase and answer the questions
+
+$ openssl req -config root-ca-openssl.conf  \
+      -key private/ca.key.pem \
+      -new -x509 -days 7300 -sha256 -extensions v3_ca \
+      -out certs/ca.cert.pem
+Enter pass phrase for private/ca.key.pem:
+You are about to be asked to enter information that will be incorporated
+into your certificate request.
+What you are about to enter is what is called a Distinguished Name or a DN.
+There are quite a few fields but you can leave some blank
+For some fields there will be a default value,
+If you enter '.', the field will be left blank.
+-----
+Country Name (2 letter code) [GB]:
+State or Province Name [England]:Denial
+Locality Name []:.
+Organization Name [Alice Ltd]:Package Inventory Services
+Organizational Unit Name []:.
+Common Name []:fnunbob.localdomain
+Email Address []:julian@localhost
+$ chmod 444 certs/ca.cert.pem
+
+Verify the certificate
+$ openssl x509 -noout -text -in certs/ca.cert.pem
+
+Create the intermediate pair, signed by the root, but used to sign the issued
+certs on behalf of the root.
+From https://jamielinux.com/docs/openssl-certificate-authority/create-the-intermediate-pair.html
+$ mkdir intermediate-ca
+$ cd intermediate-ca
+$ mkdir certs crl csr newcerts private
+$ chmod 700 private
+$ touch index.txt
+$ echo 1000 > serial
+$ echo 1000 > crlnumber
+$ cp ../root-ca/root-ca-openssl.conf intermediate-openssl.conf
+Make the following changes to the conf file:
+[ CA_default ]
+dir             = /root/ca/intermediate
+private_key     = $dir/private/intermediate.key.pem
+certificate     = $dir/certs/intermediate.cert.pem
+crl             = $dir/crl/intermediate.crl.pem
+policy          = policy_loose
+
+Now generate the intermediate key
+$ cd intermediate-ca
+$ openssl genrsa -aes256 \
+      -out private/intermediate.key.pem 4096
+$ openssl req -config intermediate-openssl.conf -new -sha256 \
+      -key private/intermediate.key.pem \
+      -out csr/intermediate.csr.pem
+      Enter pass phrase for private/intermediate.key.pem:
+      You are about to be asked to enter information that will be incorporated
+      into your certificate request.
+      What you are about to enter is what is called a Distinguished Name or a DN.
+      There are quite a few fields but you can leave some blank
+      For some fields there will be a default value,
+      If you enter '.', the field will be left blank.
+      -----
+      Country Name (2 letter code) [GB]:
+      State or Province Name [England]:Denial
+      Locality Name []:
+      Organization Name [Alice Ltd]:Package Inventory Services
+      Organizational Unit Name []:Package Inventory Services Certificate Authority
+      Common Name []:Package Inventory Services Intermediate CA
+      Email Address []:.
+
+When creating the certificate, use the root ca openssl configuration
+$ openssl ca -config ../root-ca/root-ca-openssl.conf -extensions v3_intermediate_ca \
+      -days 3650 -notext -md sha256 \
+      -in csr/intermediate.csr.pem \
+      -out certs/intermediate.cert.pem
+      Check that the request matches the signature
+      Signature ok
+      Certificate Details:
+...
+Certificate is to be certified until Nov 26 21:57:04 2026 GMT (3650 days)
+Sign the certificate? [y/n]:y
+
+
+1 out of 1 certificate requests certified, commit? [y/n]y
+Write out database with 1 new entries
+Data Base UpdatedCertificate is to be certified until Nov 26 21:57:04 2026 GMT (3650 days)
+Sign the certificate? [y/n]:y
+
+
+1 out of 1 certificate requests certified, commit? [y/n]y
+Write out database with 1 new entries
+Data Base Updated
+$ chmod 444 certs/intermediate.cert.pem
+
+Check that the root CA index.txt file contains an entry like,
+$ more ../root-ca/index.txt
+V	261126215704Z		1000	unknown	/C=GB/ST=Denial/O=Package Inventory Services/OU=Package Inventory Services Certificate Authority/CN=Package Inventory Services Intermediate CA
+
+Verify the certificate and the chin of trust
+$ openssl x509 -noout -text -in certs/intermediate.cert.pem
+$ openssl verify -CAfile ../root-ca/certs/ca.cert.pem certs/intermediate.cert.pem
+certs/intermediate.cert.pem: OK
+
+Create a certificate chain so that clients can verify the intermediate against
+the root certificate,
+$ cat certs/intermediate.cert.pem ../root-ca/certs/ca.cert.pem > certs/ca-chain.cert.pem
+$ chmod 444 certs/ca-chain.cert.pem
+
+
+
+https://pypi.python.org/pypi/blitz-ca/0.1.1
+http://stackoverflow.com/questions/33504746/doing-ssl-client-authentication-is-python
+
+
+References
+==========
+Python local CA
+https://pypi.python.org/pypi/blitz-ca/0.1.1
+http://stackoverflow.com/questions/33504746/doing-ssl-client-authentication-is-python
+
+http://stackoverflow.com/questions/9093289/how-to-create-a-dual-authentication-https-client-in-python-without-lgpl-libs
+http://twistedmatrix.com/documents/current/core/howto/ssl.html#client-authentication
+
+Might be possible to use https://github.com/httplib2/httplib2 but it doesn't
+look like it supports SSL client auth.

@@ -1,13 +1,23 @@
 #!/usr/bin/env python
 #
-# Run the server with 
-# $ export FLASK_APP=PackageInventoryServer.py 
+# Run the server with
+# $ export FLASK_APP=PackageInventoryServer.py
 # $ flask run --host=0.0.0.0
 #
 from flask import Flask, abort, request
 import os.path
 
 app = Flask(__name__)
+
+# Method to check whether a client submitted cert for the requesting hostname
+# matches the local certificate store. If yes, proceed. If not, return 400
+# params:
+#  hostnme: string: identifies the fully qualified name of the cert to retrieve
+# returns
+#   Boolean:
+def validate_client_cert():
+    pass
+
 #
 # Based on http://flask.pocoo.org/docs/0.11/quickstart/#routing
 #
