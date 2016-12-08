@@ -81,9 +81,9 @@ class PackageInventoryClient:
     csr = OpenSSL.crypto.dump_certificate_request(
                OpenSSL.crypto.FILETYPE_PEM, req)
 
-    print("Generated private key: %s" % private_key)
+    #print("Generated CSR: %s" % str(csr, 'utf-8'))
 
-    return private_key, csr
+    return private_key, str(csr, 'utf-8')
 
   def fetch_client_cert(self, hostname = None, cdir = "."):
       """
@@ -102,7 +102,7 @@ class PackageInventoryClient:
       else:
           return(None)
 
-  def save_client_cert(self, hostname = None, cdir = "."):
+  def save_client_cert(self, hostname = None, cdir = ".", cert = ""):
       """
       Method to save the local client certificate
       params:
@@ -112,13 +112,12 @@ class PackageInventoryClient:
       Returns:
        String|None: Contents of client certificate, if exists; None if not
       """
-      print("fetch_client_cert: Looking for client cert in %s/%s" % (hostname, cdir))
-      fn = "%s/%s.pem" % (dir, hostname)
-      if os.path.isfile(fn):
-          fh = open(fn ,"r")
-          return( fh.read() )
-      else:
-          return(None)
+      print("save_client_cert: Saving client cert in %s/%s" % (cdir, hostname))
+      print(cert)
+      fn = "%s/%s.cert.pem" % (cdir, hostname)
+      fh = open(fn ,"w")
+      fh.write(cert)
+      fh.close()
 
   def authenticate_client(self, hostname = None):
       """
@@ -136,10 +135,24 @@ class PackageInventoryClient:
       if(cc):
           print("Sending client cert auth request for %s." % hostname)
       else:
-          (csr, privkey) = self.create_csr(hostname, 'GB', 'Denial', 'Hometown',
+          (privkey, csr) = self.create_csr(hostname, 'GB', 'Denial', 'Hometown',
                      'Package Inventory Services', 'Our Department', '')
-          resp = requests.post( "http://localhost:5000/package-inventory/client-cert/new", data=csr, headers={'Content-Type': 'application/text'})
-          #save_cert
+          #jdata = {"hostname": hostname, "csr": csr}
+          #resp = requests.post( "http://localhost:5000/package-inventory/client-cert/new", data=json.JSONEncoder().encode( jdata ), headers={'Content-Type': 'application/json'})
+          try:
+              resp = requests.post( "http://localhost:5000/package-inventory/client-cert/new", data=csr, headers={'Content-Type': 'application/pkcs10'})
+          except requests.exceptions.ConnectionError as connerr:
+              print("authenticate_client: Connection error: %s" % connerr)
+              exit(1)
+          else:
+              print("authenticate_client: save cert from %s" % resp)
+              if resp.status_code == 200:
+                  print("authenticate_client: received cert: %s" % resp.text)
+                  self.save_client_cert(hostname, "ssl", resp.text)
+              else:
+                  print("authenticate_client: cert request failed with %s [%s]" % (resp.text, str(resp.status_code)))
+                  return(False)
+      return(True)
 
   def get_packages(self, captions=('Name', 'Version', 'Description')):
       """
