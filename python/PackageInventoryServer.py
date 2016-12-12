@@ -21,6 +21,10 @@ app = Flask(__name__)
 def validate_client_cert():
     pass
 
+@app.route('/package-inventory/heartbeat', methods=["GET"])
+def heartbeat():
+    return "OK"
+
 #
 # Based on http://flask.pocoo.org/docs/0.11/quickstart/#routing
 #
@@ -35,8 +39,12 @@ def get_inventory_package(hostname):
 
 @app.route('/package-inventory/packages/new', methods=["POST"])
 def post_inventory_package():
+    resp = Response(response = "", status = 200, content_type = "application/json")
     if validate_input(request) == False:
-        abort(400)
+        resp.status_code = 400
+        jdata = [ "status", "Input validation failure."]
+        resp.status = json.JSONEncoder().encode( jdata )
+        return(resp)
     jdata = request.get_json()
 
     if (jdata['hostname'] != None):
@@ -69,9 +77,11 @@ def get_client_csr():
             jdata = {}
             fh = open(outcert ,"r")
             jdata['signature'] = fh.read()
+            fh.close()
             print("get_client_csr: Sending signed cert to client: %s." % outcert)
             #resp.status = ("{'signature': '%s'}" % cc)
             resp.status = json.JSONEncoder().encode( jdata )
+            resp.status_code = 200
         else:
             resp.status_code   = 400
             resp.status = ("{'ERROR': 'Signed cert cannot be found for %s.'}" % client)

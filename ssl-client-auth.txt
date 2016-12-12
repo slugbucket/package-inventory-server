@@ -140,3 +140,184 @@ http://twistedmatrix.com/documents/current/core/howto/ssl.html#client-authentica
 
 Might be possible to use https://github.com/httplib2/httplib2 but it doesn't
 look like it supports SSL client auth.
+
+
+10 December 2016
+----------------
+To do the client cert authentication.
+
+Install nginx as the reverse-proxy web server as described at
+http://blog.nategood.com/client-side-certificate-authentication-in-ngi
+
+Add an enty to /etc/hosts for the server component.
+
+Prepare a certificate key pair for the server,
+
+$ openssl genrsa -des3 -out inventory-master.key 1024
+Generating RSA private key, 1024 bit long modulus
+.............++++++
+......++++++
+e is 65537 (0x10001)
+Enter pass phrase for inventory-master.key:
+Verifying - Enter pass phrase for inventory-master.key:
+
+Create a certificate signing request (CSR)
+
+$ openssl req -new -key inventory-master.key -out inventory-master.csr
+
+Now, sign the CSR with the intermedite CA certificate,
+
+$ openssl x509 -req -days 365 -in inventory-master.csr -CA /path/to/intermediate-ca/certs/intermediate.cert.pem -CAkey /path/to/private/intermediate.key.pem -set_serial 01 -out inventory-master.crt
+Signature ok
+subject=/C=GB/ST=Denial/L=Yateley/O=Package Inventory Services/OU=Infrastructure/CN=inventory-master.localdomain
+Getting CA Private Key
+Enter pass phrase for intermediate.key.pem:
+
+Create a directory, /etc/nginx/ssl, and install a copy of the cert and key.
+Create a file in the /etc/nginx/ssl directory containing the passphrase for
+private key.
+
+It might be an idea to add the intermediate certificate chain to the end of
+teh server cert.
+
+Setting up Nginx and uwsgi for secure serving of Flask application described at
+https://www.digitalocean.com/community/tutorials/how-to-serve-flask-applications-with-uwsgi-and-nginx-on-ubuntu-14-04
+
+$ sudo -s
+# cd /var/www/
+# virtualenv PackageInventoryServer
+Using base prefix '/usr'
+New python executable in /var/www/PackageInventoryServer/bin/python
+Installing setuptools, pip, wheel...done.
+#
+
+Start the virtual mchine and install the required pips in the virtualenv
+
+# source PackageInventoryServer/bin/activate
+# pip install uwsgi flask json OpenSSL
+Collecting uwsgi
+  Using cached uwsgi-2.0.14.tar.gz
+Collecting flask
+  Using cached Flask-0.11.1-py2.py3-none-any.whl
+Collecting pyOpenSSL
+  Using cached pyOpenSSL-16.2.0-py2.py3-none-any.whl
+Collecting click>=2.0 (from flask)
+  Downloading click-6.6-py2.py3-none-any.whl (71kB)
+    100% |████████████████████████████████| 71kB 1.0MB/s
+Collecting Jinja2>=2.4 (from flask)
+  Using cached Jinja2-2.8-py2.py3-none-any.whl
+Collecting Werkzeug>=0.7 (from flask)
+  Using cached Werkzeug-0.11.11-py2.py3-none-any.whl
+Collecting itsdangerous>=0.21 (from flask)
+  Using cached itsdangerous-0.24.tar.gz
+Collecting six>=1.5.2 (from pyOpenSSL)
+  Downloading six-1.10.0-py2.py3-none-any.whl
+Collecting cryptography>=1.3.4 (from pyOpenSSL)
+  Using cached cryptography-1.6.tar.gz
+Collecting MarkupSafe (from Jinja2>=2.4->flask)
+  Downloading MarkupSafe-0.23.tar.gz
+Collecting idna>=2.0 (from cryptography>=1.3.4->pyOpenSSL)
+  Using cached idna-2.1-py2.py3-none-any.whl
+Collecting pyasn1>=0.1.8 (from cryptography>=1.3.4->pyOpenSSL)
+  Using cached pyasn1-0.1.9-py2.py3-none-any.whl
+Requirement already satisfied: setuptools>=11.3 in ./PackageInventoryServer/lib/python3.5/site-packages (from cryptography>=1.3.4->pyOpenSSL)
+Collecting cffi>=1.4.1 (from cryptography>=1.3.4->pyOpenSSL)
+  Using cached cffi-1.9.1-cp35-cp35m-manylinux1_x86_64.whl
+Collecting pycparser (from cffi>=1.4.1->cryptography>=1.3.4->pyOpenSSL)
+  Using cached pycparser-2.17.tar.gz
+Building wheels for collected packages: uwsgi, itsdangerous, cryptography, MarkupSafe, pycparser
+  Running setup.py bdist_wheel for uwsgi ... done
+  Stored in directory: /root/.cache/pip/wheels/c4/ad/56/f70a70b63fa4b0f2c0518db6f41381c9d33cd5cc5ac9a9494b
+  Running setup.py bdist_wheel for itsdangerous ... done
+  Stored in directory: /root/.cache/pip/wheels/fc/a8/66/24d655233c757e178d45dea2de22a04c6d92766abfb741129a
+  Running setup.py bdist_wheel for cryptography ... done
+  Stored in directory: /root/.cache/pip/wheels/c1/b0/c1/00756c24fd3ad4bba815bacbbbaa819718ecb63039e379ea6b
+  Running setup.py bdist_wheel for MarkupSafe ... done
+  Stored in directory: /root/.cache/pip/wheels/a3/fa/dc/0198eed9ad95489b8a4f45d14dd5d2aee3f8984e46862c5748
+  Running setup.py bdist_wheel for pycparser ... done
+  Stored in directory: /root/.cache/pip/wheels/a8/0b/41/dc95621f9d3a0da7bc191b8a71f0e8182ffd3cc5f33ac55005
+Successfully built uwsgi itsdangerous cryptography MarkupSafe pycparser
+Installing collected packages: uwsgi, click, MarkupSafe, Jinja2, Werkzeug, itsdangerous, flask, six, idna, pyasn1, pycparser, cffi, cryptography, pyOpenSSL
+Successfully installed Jinja2-2.8 MarkupSafe-0.23 Werkzeug-0.11.11 cffi-1.9.1 click-6.6 cryptography-1.6 flask-0.11.1 idna-2.1 itsdangerous-0.24 pyOpenSSL-16.2.0 pyasn1-0.1.9 pycparser-2.17 six-1.10.0 uwsgi-2.0.14
+
+Create a wsgi wrapper to run the application, say, wsgi.py, bearing in mind that
+uwsgi expects the imported application to be called application,
+
+wsgi.py should contain
+
+from PackageInventoryServer import app as application
+
+if __name__ == "__main__":
+    application.run()
+
+It can be launched using,
+
+$ uwsgi --socket 0.0.0.0:5000 --protocol=http -w wsgi
+
+Provide a wrapper for uwsgi to launch the Flask application, create a file
+describing how to run the application, called, say, application.ini, with
+
+[uwsgi]
+module = wsgi
+
+master = true
+processes = 5
+
+socket = application.sock
+chmod-socket = 666
+vacuum = true
+
+die-on-term = true
+
+
+The chmod-socket setting needs to be sufficient for the user running the
+virtualenv; nginx runs as http on Arch Linux.
+
+The wsgi application can be started in the virtual environment using,
+
+# uwsgi --ini application.ini
+
+Use the following Nginx configuration,
+server {
+    listen        443;
+    ssl on;
+    server_name inventory-master.localdomain;
+
+    ssl_certificate      /etc/nginx/ssl/inventory-master.crt;
+    ssl_certificate_key  /etc/nginx/ssl/inventory-master.key;
+    ssl_client_certificate /path/to/intermedite/certs/intermediate.crt;
+    ssl_verify_client on;
+
+    location / {
+        root           /var/www/example.com/html;
+        root   html;
+        index  index.html index.htm;
+        include uwsgi_params;
+        uwsgi_pass unix:/var/www/appplication/application.sock;
+    }
+}
+
+Keep ssl_verify_client as optional while developing the solution.
+
+The nginx environment can be tested with 'nginx -t' and started normally with
+
+# systemctl start nginx
+
+Although a browser won't be the interface that the application is using, we can
+still view the site by pointing https://inventory-master.localdomin/
+The ssl_verify_client option set to 'on' should mean that a plain request for a
+resource is returnned with a '400' bad request: No required SSL certificate was sent.
+
+
+Testing with cURL:
+
+curl -v https://inventory-master.localdomain/package-inventory/packages/new -cacert /hom/home/julian/Projects/python/client-cert-auth/intermediate-ca/certs/ca-chain.cert.pem -cert file:////home/julian/Projects/ruby/package-inventory-server/python/ssl/fnunbob.localdomain.cert.pem -kcurl -vX POST https://inventory-master.localdomain/package-inventory/packages/new -cacert /hom/home/julian/Projects/python/client-cert-auth/intermediate-ca/certs/ca-chain.cert.pem -cert file:///home/julian/Projects/ruby/package-inventory-server/python/ssl/fnunbob.localdomain.cert.pem -k -d '{"hello": "bob"}'
+
+curl -k -v https://inventory-master.localdomain/package-inventory/packages/new -d '{"hostname": "fnunbob.localdomain", "Packages": [{"Version": "1:1.2.8-7", "Architecture": "x86_64", "Name": "zlib", "Description": "Compression library implementing the deflate compression method found in gzip and PKZIP", "URL": "http://www.zlib.net/"}]}'
+
+When testing in Python using Requests, we will need to trust the self-signed
+cert as described at http://stackoverflow.com/questions/30405867/how-to-get-python-requests-to-trust-a-self-signed-ssl-certificate
+using 'verify=False'; specifying the path to the public key doesn't work.
+
+It might be possible to start flask with SSL options as described at
+http://kracekumar.com/post/54437887454/ssl-for-flask-local-development

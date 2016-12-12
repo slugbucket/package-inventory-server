@@ -81,9 +81,30 @@ class PackageInventoryClient:
     csr = OpenSSL.crypto.dump_certificate_request(
                OpenSSL.crypto.FILETYPE_PEM, req)
 
-    #print("Generated CSR: %s" % str(csr, 'utf-8'))
+    #print("create_csr: Generated CSR: %s" % str(csr, 'utf-8'))
 
     return private_key, str(csr, 'utf-8')
+
+  def send_cert_request(self, hostname = None):
+      (privkey, csr) = self.create_csr(hostname, 'GB', 'Denial', 'Hometown',
+              'Package Inventory Services', 'Our Department', '')
+      #jdata = {"hostname": hostname, "csr": csr}
+      #resp = requests.post( "http://localhost:5000/package-inventory/client-cert/new", data=json.JSONEncoder().encode( jdata ), headers={'Content-Type': 'application/json'})
+      try:
+          resp = requests.post( "http://localhost:5000/package-inventory/client-cert/new", data=csr, headers={'Content-Type': 'application/pkcs10'})
+      except requests.exceptions.ConnectionError as connerr:
+          print("send_cert_request: Connection error: %s" % connerr)
+          exit(1)
+      else:
+          print("send_cert_request: save cert from %s" % resp)
+          if resp.status_code == 200:
+              cc = resp.text
+              print("send_cert_request: received cert.")
+              self.save_client_cert(hostname, "ssl", privkey, resp.text)
+          else:
+              print("send_cert_request: cert request failed with %s [%s]" % (resp.text, str(resp.status_code)))
+              return(False)
+      return(True)
 
   def fetch_client_cert(self, hostname = None, cdir = "."):
       """
@@ -94,64 +115,44 @@ class PackageInventoryClient:
       Returns:
        String|None: Contents of client certificate, if exists; None if not
       """
-      print("fetch_client_cert: Looking for client cert in %s/%s" % (hostname, cdir))
-      fn = "%s/%s.pem" % (dir, hostname)
+      print("fetch_client_cert: Looking for client cert in %s/%s" % (cdir, hostname))
+      fn = "%s/%s.cert.pem" % (cdir, hostname)
+      print("fetch_client_cert: Expect to find client cert at %s." % fn)
       if os.path.isfile(fn):
           fh = open(fn ,"r")
-          return( fh.read() )
+          #print("fetch_client_cert: Read %s from %s certificate"% (fh, hostname))
+          cert = fh.read()
       else:
-          return(None)
+          # Generate a CSR and send a signing request
+          print("fetch_client_cert: Sending CSR.")
+          cert = self.send_cert_request("fnunbob.localdomain")
 
-  def save_client_cert(self, hostname = None, cdir = ".", cert = ""):
+      return(cert)
+
+  def save_client_cert(self, hostname = None, cdir = ".", key = None, cert = ""):
       """
       Method to save the local client certificate
       params:
        hostname: String: fully qualifies name of the requesting client
        dir: String: the location of the certificate
-       cert
+       key: the private key to match the certificate
+       cert: The signed certificate from the CA
       Returns:
-       String|None: Contents of client certificate, if exists; None if not
+       True|False: Successfully saved cert/key (True); False otherwise
       """
+      print("save_client_cert: Saving key in %s/%s" % (cdir, hostname))
+      print(key)
+      fn = "%s/%s.key.pem" % (cdir, hostname)
+      fh = open(fn ,"w")
+      fh.write(str(key))
+      fh.close()
+
       print("save_client_cert: Saving client cert in %s/%s" % (cdir, hostname))
       print(cert)
       fn = "%s/%s.cert.pem" % (cdir, hostname)
       fh = open(fn ,"w")
       fh.write(cert)
       fh.close()
-
-  def authenticate_client(self, hostname = None):
-      """
-      Method to try to authenticate the client on the server using a local
-      certificate previously digned by the server.
-      params:
-       hostname: String: fully qualified name of the client
-      returns:
-       String: JSON-formatted item as described above
-      """
-      if not hostname:
-          return(None)
-
-      cc = self.fetch_client_cert(hostname, ".")
-      if(cc):
-          print("Sending client cert auth request for %s." % hostname)
-      else:
-          (privkey, csr) = self.create_csr(hostname, 'GB', 'Denial', 'Hometown',
-                     'Package Inventory Services', 'Our Department', '')
-          #jdata = {"hostname": hostname, "csr": csr}
-          #resp = requests.post( "http://localhost:5000/package-inventory/client-cert/new", data=json.JSONEncoder().encode( jdata ), headers={'Content-Type': 'application/json'})
-          try:
-              resp = requests.post( "http://localhost:5000/package-inventory/client-cert/new", data=csr, headers={'Content-Type': 'application/pkcs10'})
-          except requests.exceptions.ConnectionError as connerr:
-              print("authenticate_client: Connection error: %s" % connerr)
-              exit(1)
-          else:
-              print("authenticate_client: save cert from %s" % resp)
-              if resp.status_code == 200:
-                  print("authenticate_client: received cert: %s" % resp.text)
-                  self.save_client_cert(hostname, "ssl", resp.text)
-              else:
-                  print("authenticate_client: cert request failed with %s [%s]" % (resp.text, str(resp.status_code)))
-                  return(False)
       return(True)
 
   def get_packages(self, captions=('Name', 'Version', 'Description')):
@@ -164,7 +165,8 @@ class PackageInventoryClient:
       Returns:
         void
       """
-      if self._distro == 'Antergos Linux':
+      if self._distro == 'arch':
+          print("get_packages: Fetching ArchLinux list.")
           self.packages = self.pacman_qi(captions)
       elif self._distro == 'debian':
           print("Fetching debian package list.")
@@ -286,8 +288,18 @@ class PackageInventoryClient:
       jdata['hostname'] = self._hostname
       jdata['packages'] = self.packages
 
+      cc = self.fetch_client_cert("fnunbob.localdomain", "ssl")
+      print("send_package_list: loaded certificate for %s." % jdata['hostname'])
+      if(cc):
+          print("send_package_list: Found certificate for %s." % self._hostname)
+          print("send_package_list: Sending packages: %s" % jdata['packages'])
+      else:
+          print("send_package_list: Error:  Missing client cert for %s." % self._hostname)
+          exit(1)
+
       try:
-        resp = requests.post( "http://localhost:5000/package-inventory/packages/new", data=json.JSONEncoder().encode( jdata ), headers={'Content-Type': 'application/json'})
+        resp = requests.post( "https://inventory-master.localdomain/package-inventory/packages/new", data=json.JSONEncoder().encode( jdata ), headers={'Content-Type': 'application/json'}, verify=False)
+        #resp = requests.post( "http://localhost:5000/package-inventory/packages/new", data=json.JSONEncoder().encode( jdata ), headers={'Content-Type': 'application/json'})
         print( "send_package_list: " + str( resp.text ) )
 
       except requests.exceptions.HTTPError as err:

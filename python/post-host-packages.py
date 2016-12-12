@@ -8,6 +8,6 @@
 from PackageInventoryClient import PackageInventoryClient
 
 pic = PackageInventoryClient()
-pic.authenticate_client("fnunbob.localdomain")
+#pic.authenticate_client("fnunbob.localdomain")
 pic.get_packages(('Name', 'Version', 'Description', 'Architecture', 'URL'))
 pic.send_package_list()
