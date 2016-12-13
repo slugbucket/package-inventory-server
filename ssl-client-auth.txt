@@ -2,7 +2,8 @@ Client cert signing
 ===================
 Python-based local certificate authority (CA).
 
-https://jamielinux.com/docs/openssl-certificate-authority/
+Based on the guide at https://jamielinux.com/docs/openssl-certificate-authority/
+
 $ mkdir root-ca
 $ cd root-ca
 $ mkdir certs crl newcerts private
@@ -45,6 +46,7 @@ $ openssl x509 -noout -text -in certs/ca.cert.pem
 
 Create the intermediate pair, signed by the root, but used to sign the issued
 certs on behalf of the root.
+
 From https://jamielinux.com/docs/openssl-certificate-authority/create-the-intermediate-pair.html
 $ mkdir intermediate-ca
 $ cd intermediate-ca
@@ -124,30 +126,11 @@ $ cat certs/intermediate.cert.pem ../root-ca/certs/ca.cert.pem > certs/ca-chain.
 $ chmod 444 certs/ca-chain.cert.pem
 
 
-
-https://pypi.python.org/pypi/blitz-ca/0.1.1
-http://stackoverflow.com/questions/33504746/doing-ssl-client-authentication-is-python
-
-
-References
-==========
-Python local CA
-https://pypi.python.org/pypi/blitz-ca/0.1.1
-http://stackoverflow.com/questions/33504746/doing-ssl-client-authentication-is-python
-
-http://stackoverflow.com/questions/9093289/how-to-create-a-dual-authentication-https-client-in-python-without-lgpl-libs
-http://twistedmatrix.com/documents/current/core/howto/ssl.html#client-authentication
-
-Might be possible to use https://github.com/httplib2/httplib2 but it doesn't
-look like it supports SSL client auth.
-
-
 10 December 2016
 ----------------
 To do the client cert authentication.
 
-Install nginx as the reverse-proxy web server as described at
-http://blog.nategood.com/client-side-certificate-authentication-in-ngi
+Install nginx as the reverse-proxy web server as described at [8]
 
 Add an enty to /etc/hosts for the server component.
 
@@ -162,23 +145,56 @@ Enter pass phrase for inventory-master.key:
 Verifying - Enter pass phrase for inventory-master.key:
 
 Create a certificate signing request (CSR)
+------------------------------------------
+For the Python Requests library to work with the server certificate, we need to
+make sure that the CSR includes SubjectAlternateNames. This needs an addition to
+the intermediate-openssl.conf by adding  new section:
 
-$ openssl req -new -key inventory-master.key -out inventory-master.csr
+[ v3_req ]
 
-Now, sign the CSR with the intermedite CA certificate,
+# Extensions to add to a certificate request
 
-$ openssl x509 -req -days 365 -in inventory-master.csr -CA /path/to/intermediate-ca/certs/intermediate.cert.pem -CAkey /path/to/private/intermediate.key.pem -set_serial 01 -out inventory-master.crt
+basicConstraints = CA:FALSE
+keyUsage = nonRepudiation, digitalSignature, keyEncipherment
+subjectAltName = @alternate_names
+
+And then including this in
+
+[req]
+...
+req_extensions     = v3_req
+
+$ openssl req -new -key inventory-master.key -out inventory-master.csr -config intermediate-openssl.conf
+
+Verify the inclusion of the SAN in the CSR,
+openssl req -text -noout -in inventory-master.csr
+...
+            X509v3 Subject Alternative Name:
+                DNS:inventory-master.localdomain, DNS:www.inventory-master.localdomain
+
+Now, sign the CSR with the intermediate CA certificate,
+
+$ openssl x509 -req -days 365 -in inventory-master.csr -CA certs/intermediate.cert.pem -CAkey private/intermediate.key.pem -set_serial 01 -out inventory-master.crt -extensions v3_req -extfile intermediate-openssl.conf
 Signature ok
 subject=/C=GB/ST=Denial/L=Yateley/O=Package Inventory Services/OU=Infrastructure/CN=inventory-master.localdomain
 Getting CA Private Key
 Enter pass phrase for intermediate.key.pem:
 
-Create a directory, /etc/nginx/ssl, and install a copy of the cert and key.
-Create a file in the /etc/nginx/ssl directory containing the passphrase for
+Verify the certificate contains the SANs
+
+$ openssl x509 -noout -text -in inventory-master.crt
+...
+            X509v3 Subject Alternative Name:
+                DNS:inventory-master.localdomain, DNS:www.inventory-master.localdomain
+
+Create a directory, /etc/nginx/ssl, and install a copy of the cert and key,
+adding the intermediate certificate chain to the end of the server cert.
+
+Create a file in the /etc/nginx/ssl directory containing the passphrase for the
 private key.
 
-It might be an idea to add the intermediate certificate chain to the end of
-teh server cert.
+http://stackoverflow.com/questions/30405867/how-to-get-python-requests-to-trust-a-self-signed-ssl-certificatehttp://stackoverflow.com/questions/30405867/how-to-get-python-requests-to-trust-a-self-signed-ssl-certificate
+describes what needs to be added to a Python Requests call to trust a self-signed root CA.
 
 Setting up Nginx and uwsgi for secure serving of Flask application described at
 https://www.digitalocean.com/community/tutorials/how-to-serve-flask-applications-with-uwsgi-and-nginx-on-ubuntu-14-04
@@ -285,7 +301,7 @@ server {
 
     ssl_certificate      /etc/nginx/ssl/inventory-master.crt;
     ssl_certificate_key  /etc/nginx/ssl/inventory-master.key;
-    ssl_client_certificate /path/to/intermedite/certs/intermediate.crt;
+    ssl_client_certificate /path/to/intermediate/certs/ca-chain.crt.pem;
     ssl_verify_client on;
 
     location / {
@@ -293,7 +309,7 @@ server {
         root   html;
         index  index.html index.htm;
         include uwsgi_params;
-        uwsgi_pass unix:/var/www/appplication/application.sock;
+        uwsgi_pass unix:/var/www/application/application.sock;
     }
 }
 
@@ -311,7 +327,8 @@ resource is returnned with a '400' bad request: No required SSL certificate was 
 
 Testing with cURL:
 
-curl -v https://inventory-master.localdomain/package-inventory/packages/new -cacert /hom/home/julian/Projects/python/client-cert-auth/intermediate-ca/certs/ca-chain.cert.pem -cert file:////home/julian/Projects/ruby/package-inventory-server/python/ssl/fnunbob.localdomain.cert.pem -kcurl -vX POST https://inventory-master.localdomain/package-inventory/packages/new -cacert /hom/home/julian/Projects/python/client-cert-auth/intermediate-ca/certs/ca-chain.cert.pem -cert file:///home/julian/Projects/ruby/package-inventory-server/python/ssl/fnunbob.localdomain.cert.pem -k -d '{"hello": "bob"}'
+curl -v https://inventory-master.localdomain/package-inventory/packages/new -cacert file:///home/julian/Projects/python/client-cert-auth/intermediate-ca/certs/ca-chain.cert.pem -cert file:////home/julian/Projects/ruby/package-inventory-server/python/ssl/fnunbob.localdomain.cert.pem -k
+curl -v https://inventory-master.localdomain/package-inventory/packages/new -cacert file:///home/julian/Projects/python/client-cert-auth/intermediate-ca/certs/ca-chain.cert.pem -cert file:///home/julian/Projects/ruby/package-inventory-server/python/ssl/fnunbob.localdomain.cert.pem -key file:///home/julian/Projects/ruby/package-inventory-server/python/ssl/fnunbob.localdomain.key.pem -k -d '{"hostname": "fnunbob.localdomain", "Packages": [{"Version": "1:1.2.8-7", "Architecture": "x86_64", "Name": "zlib", "Description": "Compression library implementing the deflate compression method found in gzip and PKZIP", "URL": "http://www.zlib.net/"}]}'
 
 curl -k -v https://inventory-master.localdomain/package-inventory/packages/new -d '{"hostname": "fnunbob.localdomain", "Packages": [{"Version": "1:1.2.8-7", "Architecture": "x86_64", "Name": "zlib", "Description": "Compression library implementing the deflate compression method found in gzip and PKZIP", "URL": "http://www.zlib.net/"}]}'
 
@@ -321,3 +338,74 @@ using 'verify=False'; specifying the path to the public key doesn't work.
 
 It might be possible to start flask with SSL options as described at
 http://kracekumar.com/post/54437887454/ssl-for-flask-local-development
+
+
+Troubleshooting
+===============
+
+If the following error is received:
+
+/usr/lib/python3.5/site-packages/urllib3/connection.py:337: SubjectAltNameWarning: Certificate for inventory-master.localdomain has no `subjectAltName`, falling back to check for a `commonName` for now. This feature is being removed by major browsers and deprecated by RFC 2818. (See https://github.com/shazow/urllib3/issues/497 for details.)
+  SubjectAltNameWarning
+send_package_list: <html>
+<head><title>400 The SSL certificate error</title></head>
+
+See [7]
+
+Edit the config being used to sign the CSRs and add a new section,
+
+[ alternate_names ]
+DNS.1 = inventory-master.localdomain
+DNS.2 = www.inventory-master.localdomain
+
+And then add,
+
+subjectAltName      = @alternate_names
+
+to the section pointed to by x509_extensions (usually [v3_ca] although perhaps
+[v3_intermediate_ca] would be more accurate in this case).
+
+Make sure that the certificate request is created using an SSL config that
+includes the SAN (SubjectAltName) configuration and that an openssl configuration
+that contains req extensions that feature SubjectAlternateNames is used:
+
+openssl x509 ... -extensions v3_req -extfile intermediate-openssl.conf
+
+The openssl conf in this example would include:
+
+[ v3_req ]
+
+# Extensions to add to a certificate request
+
+basicConstraints = CA:FALSE
+keyUsage = nonRepudiation, digitalSignature, keyEncipherment
+subjectAltName = @alternate_names
+
+And then including this in
+
+[req]
+...
+req_extensions     = v3_req
+
+See [5] and [6]
+
+References
+==========
+Python local CA
+[1] https://pypi.python.org/pypi/blitz-ca/0.1.1
+[2] http://stackoverflow.com/questions/33504746/doing-ssl-client-authentication-is-python
+
+[3] http://stackoverflow.com/questions/9093289/how-to-create-a-dual-authentication-https-client-in-python-without-lgpl-libs
+[4] http://twistedmatrix.com/documents/current/core/howto/ssl.html#client-authentication
+[5] http://wiki.cacert.org/FAQ/subjectAltName - Adding SubjectAltName to a cert
+Might be possible to use https://github.com/httplib2/httplib2 but it doesn't
+look like it supports SSL client auth.
+[6] http://apetec.com/support/generatesan-csr.htm - for creating SAN server
+certificates (even though the cert creation command is missing a space in the
+argument list).
+[7] http://stackoverflow.com/questions/21488845/how-can-i-generate-a-self-signed-certificate-with-subjectaltname-using-openssl
+gives a good description; ignore the off-topic moan; it is directly related
+to programming as I can testify in this example.
+[8] http://blog.nategood.com/client-side-certificate-authentication-in-ngi
+[9] https://jamielinux.com/docs/openssl-certificate-authority/ - an ecxellent
+guide except that it is missing the need to use SubjectAlternateNames.

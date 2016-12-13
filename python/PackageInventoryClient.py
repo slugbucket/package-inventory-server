@@ -72,6 +72,22 @@ class PackageInventoryClient:
     if email_address:
         req.get_subject().emailAddress = email_address
 
+    # Use a standard exception to add the standard
+    # Getting this to work in Python is a serious, serious pain:
+    # http://stackoverflow.com/questions/24475768/is-it-possible-to-set-subjectaltname-using-pyopenssl
+    #
+    san_list = ["DNS:*.inventory-master.localdomain", "DNS:inventory-service-master.localdomain"]
+    req.add_extensions([
+        OpenSSL.crypto.X509Extension(
+            'subjectAltName'.encode(),
+            False,
+            #"DNS:*.inventory-master.localdomain".encode()
+            ", ".join(san_list).encode()
+        )
+    ])
+    #subjectAltName = OpenSSL.crypto.X509Extension('subjectAltName'.encode('charmap'), True, 'DNS:example.com'.encode('charmap'))
+    #req.add_extensions([subjectAltName])
+
     req.set_pubkey(key)
     req.sign(key, 'sha256')
 
@@ -83,7 +99,7 @@ class PackageInventoryClient:
 
     #print("create_csr: Generated CSR: %s" % str(csr, 'utf-8'))
 
-    return private_key, str(csr, 'utf-8')
+    return str(private_key, 'utf-8'), str(csr, 'utf-8')
 
   def send_cert_request(self, hostname = None):
       (privkey, csr) = self.create_csr(hostname, 'GB', 'Denial', 'Hometown',
@@ -91,7 +107,7 @@ class PackageInventoryClient:
       #jdata = {"hostname": hostname, "csr": csr}
       #resp = requests.post( "http://localhost:5000/package-inventory/client-cert/new", data=json.JSONEncoder().encode( jdata ), headers={'Content-Type': 'application/json'})
       try:
-          resp = requests.post( "http://localhost:5000/package-inventory/client-cert/new", data=csr, headers={'Content-Type': 'application/pkcs10'})
+          resp = requests.post( "https://inventory-master.localdomain/package-inventory/client-cert/new", data=csr, headers={'Content-Type': 'application/pkcs10'}, verify='/home/julian/Projects/python/client-cert-auth/intermediate-ca/certs/ca-chain.cert.pem')
       except requests.exceptions.ConnectionError as connerr:
           print("send_cert_request: Connection error: %s" % connerr)
           exit(1)
@@ -113,21 +129,22 @@ class PackageInventoryClient:
        hostname: String: fully qualifies name of the requesting client
        dir: String: the location of the certificate
       Returns:
-       String|None: Contents of client certificate, if exists; None if not
+       Tuple: file paths to client certificate and private key; None if not
       """
       print("fetch_client_cert: Looking for client cert in %s/%s" % (cdir, hostname))
       fn = "%s/%s.cert.pem" % (cdir, hostname)
+      fk = "%s/%s.key.pem" % (cdir, hostname)
       print("fetch_client_cert: Expect to find client cert at %s." % fn)
-      if os.path.isfile(fn):
-          fh = open(fn ,"r")
-          #print("fetch_client_cert: Read %s from %s certificate"% (fh, hostname))
-          cert = fh.read()
+      if os.path.isfile(fn) and os.path.isfile(fk):
+          pass
       else:
           # Generate a CSR and send a signing request
           print("fetch_client_cert: Sending CSR.")
           cert = self.send_cert_request("fnunbob.localdomain")
+          if not cert:
+              return(None, None)
 
-      return(cert)
+      return(fn, fk)
 
   def save_client_cert(self, hostname = None, cdir = ".", key = None, cert = ""):
       """
@@ -144,14 +161,14 @@ class PackageInventoryClient:
       print(key)
       fn = "%s/%s.key.pem" % (cdir, hostname)
       fh = open(fn ,"w")
-      fh.write(str(key))
+      fh.write(str(key), )
       fh.close()
 
       print("save_client_cert: Saving client cert in %s/%s" % (cdir, hostname))
       print(cert)
       fn = "%s/%s.cert.pem" % (cdir, hostname)
       fh = open(fn ,"w")
-      fh.write(cert)
+      fh.write(str(cert), )
       fh.close()
       return(True)
 
@@ -288,21 +305,27 @@ class PackageInventoryClient:
       jdata['hostname'] = self._hostname
       jdata['packages'] = self.packages
 
-      cc = self.fetch_client_cert("fnunbob.localdomain", "ssl")
+      (cert, key) = self.fetch_client_cert("fnunbob.localdomain", "ssl")
+      if( cert is None or key is None):
+          print("send_package_list: Raise a certificate creation exception.")
+          exit(1)
+
+      cert = "/home/julian/Projects/ruby/package-inventory-server/python/ssl/fnunbob.localdomain.cert.pem"
+      key = "/home/julian/Projects/ruby/package-inventory-server/python/ssl/fnunbob.localdomain.key.pem"
+      print("send_package_list: Using client cert from %s." % cert)
+      print("send_package_list: Using client key from %s." % key)
       print("send_package_list: loaded certificate for %s." % jdata['hostname'])
-      if(cc):
+      if(cert and key):
           print("send_package_list: Found certificate for %s." % self._hostname)
-          print("send_package_list: Sending packages: %s" % jdata['packages'])
+          try:
+              resp = requests.post( "https://inventory-master.localdomain/package-inventory/packages/new", data=json.JSONEncoder().encode( jdata ), headers={'Content-Type': 'application/json'}, cert=(cert,key), verify='/home/julian/Projects/python/client-cert-auth/intermediate-ca/certs/ca-chain.cert.pem')
+              #resp = requests.post( "http://localhost:5000/package-inventory/packages/new", data=json.JSONEncoder().encode( jdata ), headers={'Content-Type': 'application/json'})
+              print( "send_package_list: " + str( resp.text ) )
+
+          except requests.exceptions.HTTPError as err:
+              print( "RestClient response: " + err.text + "." )
+          except requests.exceptions.ConnectionError as connerr:
+              print("RestClient connection error: Connection refused: %s" % connerr)
       else:
           print("send_package_list: Error:  Missing client cert for %s." % self._hostname)
           exit(1)
-
-      try:
-        resp = requests.post( "https://inventory-master.localdomain/package-inventory/packages/new", data=json.JSONEncoder().encode( jdata ), headers={'Content-Type': 'application/json'}, verify=False)
-        #resp = requests.post( "http://localhost:5000/package-inventory/packages/new", data=json.JSONEncoder().encode( jdata ), headers={'Content-Type': 'application/json'})
-        print( "send_package_list: " + str( resp.text ) )
-
-      except requests.exceptions.HTTPError as err:
-          print( "RestClient response: " + err.text + "." )
-      except requests.exceptions.ConnectionError as connerr:
-          print("RestClient connection error: Connection refused")

@@ -5,7 +5,7 @@
 # $ flask run --host=0.0.0.0
 #
 from flask import Flask, abort, request, Response
-import os.path
+import os
 import subprocess
 import OpenSSL
 import json
@@ -40,6 +40,7 @@ def get_inventory_package(hostname):
 @app.route('/package-inventory/packages/new', methods=["POST"])
 def post_inventory_package():
     resp = Response(response = "", status = 200, content_type = "application/json")
+    print("post_inventory_package: Validating package data: %s" % request)
     if validate_input(request) == False:
         resp.status_code = 400
         jdata = [ "status", "Input validation failure."]
@@ -47,17 +48,26 @@ def post_inventory_package():
         return(resp)
     jdata = request.get_json()
 
+    print("post_inventory_package: Received package data: %s" % jdata['packages'])
     if (jdata['hostname'] != None):
         hostname = jdata['hostname']
     else:
         hostname = request.host
-    fn = "cache/%s" % hostname
-    fh = open(fn ,"w")
-    if fh.write( str(request.data, 'utf-8') ):
-        st = "{\"status\":\"Received packages for %s.\"}" % hostname
-        return ( st )
+
+    print("post_inventory_package: Saving package data for %s" % hostname)
+
+    try:
+        fn = "cache/%s" % hostname
+        fh = open(fn ,"w")
+        if h.write( str(request.data, 'utf-8') ):
+            resp.status = "{\"status\":\"Received packages for %s.\"}" % hostname
+    except FileNotFoundError as fnfe:
+        print("post_inventory_package: Cannot save cache file, %s: %s" % (fn, fnfe))
     else:
-        abort(400)
+        resp.status_code = 404
+        resp.status = "{\"status\":\"No packages cached for %s.\"}" % hostname
+
+    return (resp)
 
 @app.route('/package-inventory/client-cert/new', methods=["POST"])
 def get_client_csr():
@@ -99,13 +109,14 @@ def sign_csr(certdir, client, csr):
      String: certificate to send back to client
     """
     print("sign_csr: Signing csr for %s." % client)
+    print("sign_csr: Signing CSR: %s" % csr)
     #client = jdata['hostname']
     #csr = jdata['csr']
 
     # Save the CSR data to disk for processing
     csrconf  = certdir + "/intermediate-ca/intermediate-openssl.conf"
-    csrdir   = certdir + "/" + "cert-requests"
-    csrfile  = csrdir + "/" + client + ".csr.pem"
+    csrdir   = certdir + "/intermediate-ca/csr"
+    csrfile  = csrdir  + "/" + client + ".csr.pem"
     passfile = certdir + "/intermediate-ca/passphrase"
     outcert  = certdir + "/signed-certs/" + client + ".cert.pem"
 
@@ -115,23 +126,30 @@ def sign_csr(certdir, client, csr):
     print("sign_csr: csr_file: %s" % csrfile)
 
     if os.path.isfile(outcert):
-        print("sign_csr: certfile, %s, already exists." % outcert)
-        abort(400)
-    else:
-        fh = open(csrfile ,"wb")
-        fh.write( csr )
-        fh.close()
+        print("sign_csr: Deleting existing certificate, %s." % outcert)
+        os.unlink(outcert)
 
-    #sign_cert = ("openssl ca -config intermediate/openssl.cnf "
-    #             "-extensions server_cert -days 375 -notext -md sha256 "
-    #             "-in intermediate/csr/www.example.com.csr.pem         "
-    #             "-out intermediate/certs/www.example.com.cert.pem     "
-    #             % (csrfile, outcert) )
+    # Check that we can create the CSR before signing it
+    try:
+        fh = open(csrfile ,"wb")
+    except FileNotFoundError as fnfe:
+        print("sign_csr: CSR file, %s, doesn't exist or has zero size." % csrfile)
+        abort(400)
+
+    fh.write( csr )
+    fh.close()
+
+    #sign_cert = ("openssl ca -config %s -in %s   "
+    #             "-passin file:%s -batch -out %s "
+    #             "-extensions server_cert "
+    #             "-days 375 -notext -md sha256 "
+    #             % (csrconf, csrfile, passfile, outcert) )
     sign_cert = ("openssl ca -config %s -in %s   "
                  "-passin file:%s -batch -out %s "
-                 "-extensions server_cert "
+                 "-extensions v3_req -extfile %s "
                  "-days 375 -notext -md sha256 "
-                 % (csrconf, csrfile, passfile, outcert) )
+                 % (csrconf, csrfile, passfile, outcert, csrconf) )
+
     print("sign_csr: create cert in %s with %s" % (outcert, sign_cert))
     output = subprocess.getoutput(sign_cert)
     return(output)
@@ -146,8 +164,8 @@ def validate_input(request):
     """
     if( request.is_json == False ):
         return False
-
-    return 1
+    # More validation
+    return True
 
 if __name__ == "__main__":
     app.run()
