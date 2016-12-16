@@ -73,10 +73,11 @@ class PackageInventoryClient:
         req.get_subject().emailAddress = email_address
 
     # Use a standard exception to add the standard
-    # Getting this to work in Python is a serious, serious pain:
     # http://stackoverflow.com/questions/24475768/is-it-possible-to-set-subjectaltname-using-pyopenssl
-    #
-    san_list = ["DNS:*.inventory-master.localdomain", "DNS:inventory-service-master.localdomain"]
+    # Getting this to work in Python is a serious, serious pain:
+    # Note the use of the use of encode() which is required to avoid nasty
+    # TypeError messages demanding byte objects rather than strings
+    san_list = ["DNS:*." + common_name, "DNS:" + common_name]
     req.add_extensions([
         OpenSSL.crypto.X509Extension(
             'subjectAltName'.encode(),
@@ -97,26 +98,32 @@ class PackageInventoryClient:
     csr = OpenSSL.crypto.dump_certificate_request(
                OpenSSL.crypto.FILETYPE_PEM, req)
 
-    #print("create_csr: Generated CSR: %s" % str(csr, 'utf-8'))
-
     return str(private_key, 'utf-8'), str(csr, 'utf-8')
 
   def send_cert_request(self, hostname = None):
-      (privkey, csr) = self.create_csr(hostname, 'GB', 'Denial', 'Hometown',
-              'Package Inventory Services', 'Our Department', '')
+      """
+      Method to send a client CSR to the server and if the server can sign a
+      certificate, request that it be saved along with the private key.
+      Params:
+        hostname: String identifying the name of the client for the CSR
+      Returns:
+        Boolean: True if a signed cert is returned; False otherwise
+      """
+      (privkey, csr) = self.create_csr(hostname, 'GB', 'England', 'Hampshire',
+              'Package Inventory Services', 'Inventory Department', '')
       #jdata = {"hostname": hostname, "csr": csr}
       #resp = requests.post( "http://localhost:5000/package-inventory/client-cert/new", data=json.JSONEncoder().encode( jdata ), headers={'Content-Type': 'application/json'})
       try:
-          resp = requests.post( "https://inventory-master.localdomain/package-inventory/client-cert/new", data=csr, headers={'Content-Type': 'application/pkcs10'}, verify='/home/julian/Projects/python/client-cert-auth/intermediate-ca/certs/ca-chain.cert.pem')
+          resp = requests.post( "https://inventory-master.localdomain/package-inventory/client-cert/new", data=csr, headers={'Content-Type': 'application/pkcs10'}, verify='/home/julian/Projects/client-cert-auth/intermediate-ca/certs/ca-chain.cert.pem')
       except requests.exceptions.ConnectionError as connerr:
           print("send_cert_request: Connection error: %s" % connerr)
-          exit(1)
+          return(False)
       else:
           print("send_cert_request: save cert from %s" % resp)
           if resp.status_code == 200:
-              cc = resp.text
-              print("send_cert_request: received cert.")
-              self.save_client_cert(hostname, "ssl", privkey, resp.text)
+              cc = resp.raw
+              print("send_cert_request: received cert: %s" % cc)
+              self.save_client_cert(hostname, "ssl", privkey, cc)
           else:
               print("send_cert_request: cert request failed with %s [%s]" % (resp.text, str(resp.status_code)))
               return(False)
@@ -302,23 +309,21 @@ class PackageInventoryClient:
         void
       """
       jdata = {}
-      jdata['hostname'] = self._hostname
+      jdata['hostname'] = self._hostname + ".localdomain"
       jdata['packages'] = self.packages
 
-      (cert, key) = self.fetch_client_cert("fnunbob.localdomain", "ssl")
+      chain = '/home/julian/Projects/client-cert-auth/intermediate-ca/certs/ca-chain.cert.pem'
+      (cert, key) = self.fetch_client_cert(jdata['hostname'], "ssl")
       if( cert is None or key is None):
           print("send_package_list: Raise a certificate creation exception.")
           exit(1)
 
-      cert = "/home/julian/Projects/ruby/package-inventory-server/python/ssl/fnunbob.localdomain.cert.pem"
-      key = "/home/julian/Projects/ruby/package-inventory-server/python/ssl/fnunbob.localdomain.key.pem"
       print("send_package_list: Using client cert from %s." % cert)
       print("send_package_list: Using client key from %s." % key)
-      print("send_package_list: loaded certificate for %s." % jdata['hostname'])
       if(cert and key):
-          print("send_package_list: Found certificate for %s." % self._hostname)
+          print("send_package_list: Found certificate for %s." % jdata['hostname'])
           try:
-              resp = requests.post( "https://inventory-master.localdomain/package-inventory/packages/new", data=json.JSONEncoder().encode( jdata ), headers={'Content-Type': 'application/json'}, cert=(cert,key), verify='/home/julian/Projects/python/client-cert-auth/intermediate-ca/certs/ca-chain.cert.pem')
+              resp = requests.post( "https://inventory-master.localdomain/package-inventory/packages/new", data=json.JSONEncoder().encode( jdata ), headers={'Content-Type': 'application/json'}, cert=(cert,key), verify=chain)
               #resp = requests.post( "http://localhost:5000/package-inventory/packages/new", data=json.JSONEncoder().encode( jdata ), headers={'Content-Type': 'application/json'})
               print( "send_package_list: " + str( resp.text ) )
 

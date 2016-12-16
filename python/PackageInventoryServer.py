@@ -42,13 +42,14 @@ def post_inventory_package():
     resp = Response(response = "", status = 200, content_type = "application/json")
     print("post_inventory_package: Validating package data: %s" % request)
     if validate_input(request) == False:
+        print("post_inventory_package: data validation failed. Exit with 400 status.")
         resp.status_code = 400
         jdata = [ "status", "Input validation failure."]
         resp.status = json.JSONEncoder().encode( jdata )
         return(resp)
-    jdata = request.get_json()
 
-    print("post_inventory_package: Received package data: %s" % jdata['packages'])
+    jdata = request.get_json()
+    print("post_inventory_package: Received package data: %s" % jdata)
     if (jdata['hostname'] != None):
         hostname = jdata['hostname']
     else:
@@ -59,7 +60,7 @@ def post_inventory_package():
     try:
         fn = "cache/%s" % hostname
         fh = open(fn ,"w")
-        if h.write( str(request.data, 'utf-8') ):
+        if fh.write( str(request.data, 'utf-8') ):
             resp.status = "{\"status\":\"Received packages for %s.\"}" % hostname
     except FileNotFoundError as fnfe:
         print("post_inventory_package: Cannot save cache file, %s: %s" % (fn, fnfe))
@@ -72,7 +73,7 @@ def post_inventory_package():
 @app.route('/package-inventory/client-cert/new', methods=["POST"])
 def get_client_csr():
     client = "fnunbob.localdomain"
-    certdir = "/home/julian/Projects/python/client-cert-auth"
+    certdir = "/home/julian/Projects/client-cert-auth/intermediate-ca"
     resp = Response(response = "", status = 200, content_type = "application/json")
     #response.content_type = "application/json"
     #response.status = 200
@@ -82,13 +83,15 @@ def get_client_csr():
         resp.status   = 400
         resp.response = "{'ERROR': 'cert sign request failed.'}"
     else:
-        outcert  = certdir + "/signed-certs/" + client + ".cert.pem"
+        outcert  = certdir + "/newcerts/" + client + ".cert.pem"
         if os.path.isfile(outcert):
-            jdata = {}
+            jdata = []
+            jdata.append({'status': "Sending signed certificate"})
             fh = open(outcert ,"r")
-            jdata['signature'] = fh.read()
+            jdata.append({'signature': fh.read()})
             fh.close()
-            print("get_client_csr: Sending signed cert to client: %s." % outcert)
+            print("get_client_csr: Sending signed cert from %s." % outcert)
+            print("get_client_csr: Sending JSON: %s." % json.JSONEncoder().encode( jdata ))
             #resp.status = ("{'signature': '%s'}" % cc)
             resp.status = json.JSONEncoder().encode( jdata )
             resp.status_code = 200
@@ -114,11 +117,11 @@ def sign_csr(certdir, client, csr):
     #csr = jdata['csr']
 
     # Save the CSR data to disk for processing
-    csrconf  = certdir + "/intermediate-ca/intermediate-openssl.conf"
-    csrdir   = certdir + "/intermediate-ca/csr"
+    csrconf  = certdir + "/intermediate-openssl.conf"
+    csrdir   = certdir + "/csr"
     csrfile  = csrdir  + "/" + client + ".csr.pem"
-    passfile = certdir + "/intermediate-ca/passphrase"
-    outcert  = certdir + "/signed-certs/" + client + ".cert.pem"
+    passfile = certdir + "/passphrase"
+    outcert  = certdir + "/newcerts/" + client + ".cert.pem"
 
     # Show us what you've got
     print("sign_csr: openssl conf: %s" % csrconf)
@@ -132,12 +135,11 @@ def sign_csr(certdir, client, csr):
     # Check that we can create the CSR before signing it
     try:
         fh = open(csrfile ,"wb")
+        fh.write( csr )
+        fh.close()
     except FileNotFoundError as fnfe:
         print("sign_csr: CSR file, %s, doesn't exist or has zero size." % csrfile)
         abort(400)
-
-    fh.write( csr )
-    fh.close()
 
     #sign_cert = ("openssl ca -config %s -in %s   "
     #             "-passin file:%s -batch -out %s "
@@ -152,6 +154,7 @@ def sign_csr(certdir, client, csr):
 
     print("sign_csr: create cert in %s with %s" % (outcert, sign_cert))
     output = subprocess.getoutput(sign_cert)
+    #print("sign_csr: Received command status %s from cert signing." % output)
     return(output)
 
 def validate_input(request):
@@ -162,8 +165,8 @@ def validate_input(request):
     Returns:
       Boolean: true if submitted data is good, false otherwise
     """
-    if( request.is_json == False ):
-        return False
+    #if( request.is_json == False ):
+    #    return False
     # More validation
     return True
 

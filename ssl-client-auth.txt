@@ -18,7 +18,7 @@ to root-ca-openssl.conf amending the top level dir entry as appropriate.
 $ openssl genrsa -aes256 -out private/ca.key.pem 4096
 $ chmod 400 private/ca.key.pem
 
-Enter the priavte key passphrase and answer the questions
+Enter the private key passphrase and answer the questions
 
 $ openssl req -config root-ca-openssl.conf  \
       -key private/ca.key.pem \
@@ -33,12 +33,12 @@ For some fields there will be a default value,
 If you enter '.', the field will be left blank.
 -----
 Country Name (2 letter code) [GB]:
-State or Province Name [England]:Denial
-Locality Name []:.
+State or Province Name [England]:England
+Locality Name []:Hampshire
 Organization Name [Alice Ltd]:Package Inventory Services
-Organizational Unit Name []:.
-Common Name []:fnunbob.localdomain
-Email Address []:julian@localhost
+Organizational Unit Name []:Package Inventory Services Root CA
+Common Name []:root-ca.localdomain
+Email Address []:root-ca@localhost
 $ chmod 444 certs/ca.cert.pem
 
 Verify the certificate
@@ -55,7 +55,9 @@ $ chmod 700 private
 $ touch index.txt
 $ echo 1000 > serial
 $ echo 1000 > crlnumber
+$ echo "unique_subject = no" > index.txt.attr - see [15]
 $ cp ../root-ca/root-ca-openssl.conf intermediate-openssl.conf
+
 Make the following changes to the conf file:
 [ CA_default ]
 dir             = /root/ca/intermediate
@@ -80,12 +82,12 @@ $ openssl req -config intermediate-openssl.conf -new -sha256 \
       If you enter '.', the field will be left blank.
       -----
       Country Name (2 letter code) [GB]:
-      State or Province Name [England]:Denial
-      Locality Name []:
+      State or Province Name [England]:England
+      Locality Name []:Hampshire
       Organization Name [Alice Ltd]:Package Inventory Services
-      Organizational Unit Name []:Package Inventory Services Certificate Authority
-      Common Name []:Package Inventory Services Intermediate CA
-      Email Address []:.
+      Organizational Unit Name []:Package Inventory Services Intermediate CA
+      Common Name []:intermediate-ca@localdomain
+      Email Address []:intermediate-ca@localhost
 
 When creating the certificate, use the root ca openssl configuration
 $ openssl ca -config ../root-ca/root-ca-openssl.conf -extensions v3_intermediate_ca \
@@ -166,6 +168,10 @@ req_extensions     = v3_req
 
 $ openssl req -new -key inventory-master.key -out inventory-master.csr -config intermediate-openssl.conf
 
+Or, to create the CSR and (passphraseless key) in one command,
+
+$ openssl req -newkey rsa:1024 -keyout inventory-master.key -nodes -config intermediate-openssl.conf -out inventory-master.csr
+
 Verify the inclusion of the SAN in the CSR,
 openssl req -text -noout -in inventory-master.csr
 ...
@@ -187,14 +193,35 @@ $ openssl x509 -noout -text -in inventory-master.crt
             X509v3 Subject Alternative Name:
                 DNS:inventory-master.localdomain, DNS:www.inventory-master.localdomain
 
+Now, most sources point to best practice is to use passphrases to encrypt the
+private key, but it does make them much harder to use and stuff has a habit of
+not working. And when it doesn't work it is a nightmare to troubleshoot with
+just a '400 - Bad request' at the reverse proxy and no other indications.
+
+Verify that the key matches the certificate,
+$ openssl x509 -noout -modulus -in ssl/fnunbob.localdomain.cert.pem | openssl md5
+(stdin)= 79a6abe2e4e69ace8305ce562dfa9ec2
+$ openssl rsa -noout -modulus -in ssl/fnunbob.localdomain.key.pem |openssl md5
+(stdin)= 79a6abe2e4e69ace8305ce562dfa9ec2
+
+To convert the certificate and key to pkcs12 format (for importing into a web
+browser for testing purposes):
+
+$ openssl pkcs12 -export -out ssl/fnunbob.localdomain.pfx -inkey ssl/fnunbob.localdomain.key.pem -in ssl/fnunbob.localdomain.cert.pem -certfile ~/Projects/python/client-cert-auth/intermediate-ca/certs/ca-chain.cert.pem
+Enter Export Password:
+Verifying - Enter Export Password:
+
+(The passphrase will be empty)
+
 Create a directory, /etc/nginx/ssl, and install a copy of the cert and key,
 adding the intermediate certificate chain to the end of the server cert.
 
 Create a file in the /etc/nginx/ssl directory containing the passphrase for the
-private key.
+private key if used.
 
-http://stackoverflow.com/questions/30405867/how-to-get-python-requests-to-trust-a-self-signed-ssl-certificatehttp://stackoverflow.com/questions/30405867/how-to-get-python-requests-to-trust-a-self-signed-ssl-certificate
-describes what needs to be added to a Python Requests call to trust a self-signed root CA.
+http://stackoverflow.com/questions/30405867/how-to-get-python-requests-to-trust-a-self-signed-ssl-certificate
+describes what needs to be added to a Python Requests call to trust a
+self-signed root CA.
 
 Setting up Nginx and uwsgi for secure serving of Flask application described at
 https://www.digitalocean.com/community/tutorials/how-to-serve-flask-applications-with-uwsgi-and-nginx-on-ubuntu-14-04
@@ -301,8 +328,10 @@ server {
 
     ssl_certificate      /etc/nginx/ssl/inventory-master.crt;
     ssl_certificate_key  /etc/nginx/ssl/inventory-master.key;
-    ssl_client_certificate /path/to/intermediate/certs/ca-chain.crt.pem;
-    ssl_verify_client on;
+    ssl_trusted_certificate /etc/nginx/ssl/ca-chain.crt;
+    ssl_client_certificate /etc/nginx/ssl/ca-chain.crt;
+    ssl_verify_client optional;
+    ssl_verify_depth 3;
 
     location / {
         root           /var/www/example.com/html;
@@ -326,15 +355,52 @@ resource is returnned with a '400' bad request: No required SSL certificate was 
 
 
 Testing with cURL:
+Create a key and CSR,
+openssl req -newkey rsa:1024 -keyout fnunbob.key -nodes -config intermediate-openssl.conf -out fnunbob.csr
+enerating a 1024 bit RSA private key
+...........++++++
+............................................................................++++++
+writing new private key to 'fnunbob.key'
+-----
+You are about to be asked to enter information that will be incorporated
+into your certificate request.
+What you are about to enter is what is called a Distinguished Name or a DN.
+There are quite a few fields but you can leave some blank
+For some fields there will be a default value,
+If you enter '.', the field will be left blank.
+-----
+Country Name (2 letter code) [GB]:
+State or Province Name [England]:
+Locality Name []:Hampshire
+Organization Name [Alice Ltd]:Package Inventory Services
+Organizational Unit Name []:Inventory Team
+Common Name []:fnunbob.localdomain
+Email Address []:.
 
-curl -v https://inventory-master.localdomain/package-inventory/packages/new -cacert file:///home/julian/Projects/python/client-cert-auth/intermediate-ca/certs/ca-chain.cert.pem -cert file:////home/julian/Projects/ruby/package-inventory-server/python/ssl/fnunbob.localdomain.cert.pem -k
-curl -v https://inventory-master.localdomain/package-inventory/packages/new -cacert file:///home/julian/Projects/python/client-cert-auth/intermediate-ca/certs/ca-chain.cert.pem -cert file:///home/julian/Projects/ruby/package-inventory-server/python/ssl/fnunbob.localdomain.cert.pem -key file:///home/julian/Projects/ruby/package-inventory-server/python/ssl/fnunbob.localdomain.key.pem -k -d '{"hostname": "fnunbob.localdomain", "Packages": [{"Version": "1:1.2.8-7", "Architecture": "x86_64", "Name": "zlib", "Description": "Compression library implementing the deflate compression method found in gzip and PKZIP", "URL": "http://www.zlib.net/"}]}'
+curl -v https://inventory-master.localdomain/package-inventory/client-cert/new --cacert /home/julian/Projects/client-cert-auth/intermediate-ca/certs/ca-chain.cert.pem -H 'Content-Type: application/pkcs10' -k -d '
+-----BEGIN CERTIFICATE REQUEST-----
+MIICQjCCAasCAQAwgY8xCzAJBgNVBAYTAkdCMRAwDgYDVQQIDAdFbmdsYW5kMRIw
+...
+fp1O0gQA20BaZAPN6FfpUITCdgxRh/usprzpDbi/Lz/A3hslFBmXwiC4S8QRTRbp
+5a8NOAC8
+-----END CERTIFICATE REQUEST-----'
 
-curl -k -v https://inventory-master.localdomain/package-inventory/packages/new -d '{"hostname": "fnunbob.localdomain", "Packages": [{"Version": "1:1.2.8-7", "Architecture": "x86_64", "Name": "zlib", "Description": "Compression library implementing the deflate compression method found in gzip and PKZIP", "URL": "http://www.zlib.net/"}]}'
+# Test a post without a client cert
+curl -k -v https://inventory-master.localdomain/package-inventory/packages/new -H 'Content-Type: application/json' \
+-d '{"hostname": "fnunbob.localdomain", "Packages": [{"Version": "1:1.2.8-7", "Architecture": "x86_64", "Name": "zlib", "Description": "Compression library implementing the deflate compression method found in gzip and PKZIP", "URL": "http://www.zlib.net/"}]}'
+
+# Testing with a client cert
+curl -v https://inventory-master.localdomain/package-inventory/packages/new \
+--cacert /home/julian/Projects/client-cert-auth/intermediate-ca/certs/ca-chain.cert.pem \
+--cert /home/julian/Projects/ruby/package-inventory-server/python/ssl/fnunbob.localdomain.cert.pem \
+--key /home/julian/Projects/ruby/package-inventory-server/python/ssl/fnunbob.localdomain.key.pem \
+-H 'Content-Type: application/json' -k \
+-d '{"hostname": "fnunbob.localdomain", "Packages": [{"Version": "1:1.2.8-7", "Architecture": "x86_64", "Name": "zlib", "Description": "Compression library implementing the deflate compression method found in gzip and PKZIP", "URL": "http://www.zlib.net/"}]}' -d '{"hostname": "fnunbob.localdomain", "Packages": [{"Version": "1:1.2.8-7", "Architecture": "x86_64", "Name": "zlib", "Description": "Compression library implementing the deflate compression method found in gzip and PKZIP", "URL": "http://www.zlib.net/"}]}'
+
 
 When testing in Python using Requests, we will need to trust the self-signed
 cert as described at http://stackoverflow.com/questions/30405867/how-to-get-python-requests-to-trust-a-self-signed-ssl-certificate
-using 'verify=False'; specifying the path to the public key doesn't work.
+using 'verify=False' or by specifying the path to the CA chain.
 
 It might be possible to start flask with SSL options as described at
 http://kracekumar.com/post/54437887454/ssl-for-flask-local-development
@@ -389,12 +455,90 @@ req_extensions     = v3_req
 
 See [5] and [6]
 
+---------------
+Testing the basic response from the server with a client cert and key
+$ python
+>>> import requests
+>>> requests.get('https://inventory-master.localdomain/', cert=('/path/server.crt', '/path/key'))
+raceback (most recent call last):
+  File "/usr/lib/python3.5/site-packages/urllib3/connectionpool.py", line 594, in urlopen
+    chunked=chunked)
+  File "/usr/lib/python3.5/site-packages/urllib3/connectionpool.py", line 350, in _make_request
+    self._validate_conn(conn)
+  File "/usr/lib/python3.5/site-packages/urllib3/connectionpool.py", line 835, in _validate_conn
+    conn.connect()
+  File "/usr/lib/python3.5/site-packages/urllib3/connection.py", line 323, in connect
+    ssl_context=context)
+  File "/usr/lib/python3.5/site-packages/urllib3/util/ssl_.py", line 324, in ssl_wrap_socket
+    return context.wrap_socket(sock, server_hostname=server_hostname)
+  File "/usr/lib/python3.5/ssl.py", line 377, in wrap_socket
+    _context=self)
+  File "/usr/lib/python3.5/ssl.py", line 752, in __init__
+    self.do_handshake()
+  File "/usr/lib/python3.5/ssl.py", line 988, in do_handshake
+    self._sslobj.do_handshake()
+  File "/usr/lib/python3.5/ssl.py", line 633, in do_handshake
+    self._sslobj.do_handshake()
+ssl.SSLError: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed (_ssl.c:645)
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/usr/lib/python3.5/site-packages/requests/adapters.py", line 423, in send
+    timeout=timeout
+  File "/usr/lib/python3.5/site-packages/urllib3/connectionpool.py", line 624, in urlopen
+    raise SSLError(e)
+requests.packages.urllib3.exceptions.SSLError: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed (_ssl.c:645)
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+  File "/usr/lib/python3.5/site-packages/requests/api.py", line 70, in get
+    return request('get', url, params=params, **kwargs)
+  File "/usr/lib/python3.5/site-packages/requests/api.py", line 56, in request
+    return session.request(method=method, url=url, **kwargs)
+  File "/usr/lib/python3.5/site-packages/requests/sessions.py", line 488, in request
+    resp = self.send(prep, **send_kwargs)
+  File "/usr/lib/python3.5/site-packages/requests/sessions.py", line 609, in send
+    r = adapter.send(request, **kwargs)
+  File "/usr/lib/python3.5/site-packages/requests/adapters.py", line 497, in send
+    raise SSLError(e, request=request)
+requests.exceptions.SSLError: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed (_ssl.c:645)
+
+We can also use the verify option to pass in the CA certificate chain used to
+sign the certificate request.
+
+>>> requests.get('https://inventory-master.localdomain/', cert=('ssl/fnunbob.localdomain.cert.pem', 'ssl/fnunbob.localdomain.key.pem'), verify='/home/julian/Projects/python/client-cert-auth/intermediate-ca/certs/ca-chain.cert.pem')
+<Response [400]>
+
+This response is from the web server rather than the Flask/uwsgi application.
+
+$ openssl s_client -showcerts -connect inventory-master.localdomain:443 > /tmp/cacert.pem
+depth=2 C = GB, ST = England, L = Hampshire, O = Package Inventory Services, OU = Package Inventory Services Root CA, CN = root-ca.localdomain, emailAddress = root-ca@localhost
+verify error:num=19:self signed certificate in certificate chain
+140704756164248:error:14094410:SSL routines:ssl3_read_bytes:sslv3 alert handshake failure:s3_pkt.c:1487:SSL alert number 40
+140704756164248:error:140790E5:SSL routines:ssl23_write:ssl handshake failure:s23_lib.c:177:
+So why do reports (e.g. [16]) say that this command works first time for a
+self-signed certificate?
+
+$ openssl s_client -connect inventory-master.localdomain:443 -key inventory-master.key -showcerts \
+                 -cert inventory-master.crt
+Show the full certificate path being used by the server
+
+$ openssl s_client -connect inventory-master.localdomain:443/package-inventory/heartbeat \
+-status -cert fnunbob-localdomain.crt -key fnunbob.key -verify 1 -showcerts \
+-CAfile certs/ca-chain.cert.pem
+
+This can help identify any stray certificates that don't belong in the CA chain.
+
 References
 ==========
-Python local CA
-[1] https://pypi.python.org/pypi/blitz-ca/0.1.1
-[2] http://stackoverflow.com/questions/33504746/doing-ssl-client-authentication-is-python
+There is a lot of material on this difficult subject; you mileage will vary, but
+below is a selection of articles that were useful preparing this document.
 
+[1] https://pypi.python.org/pypi/blitz-ca/0.1.1 - Python local CA; not used here
+[2] http://stackoverflow.com/questions/33504746/doing-ssl-client-authentication-is-python
 [3] http://stackoverflow.com/questions/9093289/how-to-create-a-dual-authentication-https-client-in-python-without-lgpl-libs
 [4] http://twistedmatrix.com/documents/current/core/howto/ssl.html#client-authentication
 [5] http://wiki.cacert.org/FAQ/subjectAltName - Adding SubjectAltName to a cert
@@ -407,5 +551,23 @@ argument list).
 gives a good description; ignore the off-topic moan; it is directly related
 to programming as I can testify in this example.
 [8] http://blog.nategood.com/client-side-certificate-authentication-in-ngi
-[9] https://jamielinux.com/docs/openssl-certificate-authority/ - an ecxellent
+[9] https://jamielinux.com/docs/openssl-certificate-authority/ - an excellent
 guide except that it is missing the need to use SubjectAlternateNames.
+[10] https://www.digitalocean.com/community/tutorials/how-to-serve-flask-applications-with-uwsgi-and-nginx-on-ubuntu-14-04
+A good guide to fronting Flask applications with uwsgi and Nginx.
+[11] http://stackoverflow.com/questions/30405867/how-to-get-python-requests-to-trust-a-self-signed-ssl-certificate
+How to get Python Requests calls to trust self-signed certificates.
+[12] http://serverfault.com/questions/721572/nginx-verifying-client-certs-only-on-a-particular-location
+Location-based authorisation so that CSRs and heartbeats can be processed
+without requiring a cert; everything else does; we're not bothered if it
+doesn't work for one browser or another.
+[13] https://support.globalsign.com/customer/portal/articles/1353601-converting-certificates---openssl
+Converting certs and keys from one format to another. Lots of sites will do this
+[14] https://kb.wisc.edu/middleware/page.php?id=4064https://kb.wisc.edu/middleware/page.php?id=4064
+Verifying that a certificate and key match.
+[15] http://stackoverflow.com/questions/9496698/how-to-revoke-an-openssl-certificate-when-you-dont-have-the-certificate
+How to get past certificate database errors when re-requesting a replacement
+[16] http://stackoverflow.com/questions/7885785/using-openssl-to-get-the-certificate-from-a-server
+Getting openssl to report the certificates in use on a server.
+[17] http://stackoverflow.com/questions/10175812/how-to-create-a-self-signed-certificate-with-opensslhttp://stackoverflow.com/questions/10175812/how-to-create-a-self-signed-certificate-with-openssl
+Perhaps a better guide to correctly setting up root CA to self-sign trusted certs
