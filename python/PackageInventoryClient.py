@@ -86,8 +86,6 @@ class PackageInventoryClient:
             ", ".join(san_list).encode()
         )
     ])
-    #subjectAltName = OpenSSL.crypto.X509Extension('subjectAltName'.encode('charmap'), True, 'DNS:example.com'.encode('charmap'))
-    #req.add_extensions([subjectAltName])
 
     req.set_pubkey(key)
     req.sign(key, 'sha256')
@@ -109,25 +107,56 @@ class PackageInventoryClient:
       Returns:
         Boolean: True if a signed cert is returned; False otherwise
       """
+      cacert = "/home/julian/Projects/client-cert-auth/intermediate-ca/certs/ca-chain.cert.pem"
       (privkey, csr) = self.create_csr(hostname, 'GB', 'England', 'Hampshire',
               'Package Inventory Services', 'Inventory Department', '')
-      #jdata = {"hostname": hostname, "csr": csr}
-      #resp = requests.post( "http://localhost:5000/package-inventory/client-cert/new", data=json.JSONEncoder().encode( jdata ), headers={'Content-Type': 'application/json'})
+
       try:
-          resp = requests.post( "https://inventory-master.localdomain/package-inventory/client-cert/new", data=csr, headers={'Content-Type': 'application/pkcs10'}, verify='/home/julian/Projects/client-cert-auth/intermediate-ca/certs/ca-chain.cert.pem')
+          resp = requests.post( "https://inventory-master.localdomain/package-inventory/client-cert/new",
+            data=csr,
+            headers={'Content-Type': 'application/pkcs10'},
+            verify=cacert,
+            allow_redirects=True)
       except requests.exceptions.ConnectionError as connerr:
           print("send_cert_request: Connection error: %s" % connerr)
           return(False)
       else:
-          print("send_cert_request: save cert from %s" % resp)
-          if resp.status_code == 200:
-              cc = resp.raw
-              print("send_cert_request: received cert: %s" % cc)
-              self.save_client_cert(hostname, "ssl", privkey, cc)
-          else:
-              print("send_cert_request: cert request failed with %s [%s]" % (resp.text, str(resp.status_code)))
-              return(False)
+          print("send_cert_request: save cert from %s" % resp.url)
+          if resp.history:
+              print("send_cert_request: Searching history for 302 redirect.")
+              for r in resp.history:
+                  print("send_cert_request: repsonse history shows status: %s" % r.status_code)
+                  if r.status_code == 301 or r.status_code == 302:
+                      print("send_cert_request: received redirect to download cert from: %s" % resp.url)
+                      #cert = self.download_signed_cert(resp.url, cacert)
+                      cert = resp.text
+                      if cert:
+                          self.save_client_cert(hostname, "ssl", privkey, cert)
+                      else:
+                          print("send_cert_request: Cert download failed.")
+                          return(False)
+                  else:
+                      print("send_cert_request: cert request failed with %s [%s]" % (resp.text, str(resp.status_code)))
+                      return(False)
       return(True)
+
+  def download_signed_cert(self, url, cacert):
+      """
+      Method to send a GET request to the server for a signed certificate.
+      We expect that only one request can be made for the cert; the cached copy
+      is removed from the server after the request
+      params:
+        url: string with the URL to download the file from
+        cacert: trusted cert chain
+      returns:
+        string: contents of the downloaded cert file
+      """
+      print("download_signed_cert: download cert from %s." % url)
+      resp = requests.get(url, verify=cacert)
+      print("download_signed_cert: Download status: %s" % resp.status_code)
+      if resp.status_code != 200:
+          return False
+      return(resp.text)
 
   def fetch_client_cert(self, hostname = None, cdir = "."):
       """
@@ -324,7 +353,6 @@ class PackageInventoryClient:
           print("send_package_list: Found certificate for %s." % jdata['hostname'])
           try:
               resp = requests.post( "https://inventory-master.localdomain/package-inventory/packages/new", data=json.JSONEncoder().encode( jdata ), headers={'Content-Type': 'application/json'}, cert=(cert,key), verify=chain)
-              #resp = requests.post( "http://localhost:5000/package-inventory/packages/new", data=json.JSONEncoder().encode( jdata ), headers={'Content-Type': 'application/json'})
               print( "send_package_list: " + str( resp.text ) )
 
           except requests.exceptions.HTTPError as err:

@@ -4,7 +4,7 @@
 # $ export FLASK_APP=PackageInventoryServer.py
 # $ flask run --host=0.0.0.0
 #
-from flask import Flask, abort, request, Response
+from flask import Flask, abort, request, Response, redirect
 import os
 import subprocess
 import OpenSSL
@@ -12,12 +12,14 @@ import json
 
 app = Flask(__name__)
 
-# Method to check whether a client submitted cert for the requesting hostname
-# matches the local certificate store. If yes, proceed. If not, return 400
-# params:
-#  hostnme: string: identifies the fully qualified name of the cert to retrieve
-# returns
-#   Boolean:
+"""
+Method to check whether a client submitted cert for the requesting hostname
+matches the local certificate store. If yes, proceed. If not, return 400
+params:
+ hostnme: string: identifies the fully qualified name of the cert to retrieve
+returns
+  Boolean:
+"""
 def validate_client_cert():
     pass
 
@@ -39,6 +41,13 @@ def get_inventory_package(hostname):
 
 @app.route('/package-inventory/packages/new', methods=["POST"])
 def post_inventory_package():
+"""
+Route to accept a list of packages
+params:
+  JSON data identifying client and list of packages
+returns:
+  Response object indicating the status
+"""
     resp = Response(response = "", status = 200, content_type = "application/json")
     print("post_inventory_package: Validating package data: %s" % request)
     if validate_input(request) == False:
@@ -70,13 +79,48 @@ def post_inventory_package():
 
     return (resp)
 
+@app.route('/package-inventory/client-cert/<certname>', methods=["GET"])
+def get_client_cert(certname):
+    """
+    Method to retrieve a client certificate created after a CSR has been
+    processed. The cert is deleted as part of this request.
+    Params:
+      <certname>: Taken from the request
+    returns:
+      string: pkcs10 content containing the cert; 404 error if the cert
+              has already been downloaded or otherwise does not exist.
+    """
+    certdir = "/home/julian/Projects/client-cert-auth/intermediate-ca/newcerts/"
+    certfile = certdir + certname
+    print("get_client_cert: Received download request for %s." % certfile)
+    resp = Response(response = "", status = 200, content_type = "text/plain")
+    if(os.path.isfile(certfile) and os.path.getsize(certfile) > 0):
+        fh = open(certfile ,"r")
+        cert = fh.read()
+        fh.close()
+        print("get_client_cert: Sending signed cert from %s." % certfile)
+        print("get_client_cert: Deleting server-side cert at %s" % certfile)
+        os.unlink(certfile)
+        return(cert)
+    else:
+        resp.status_code = 404
+
+    return(resp)
+
 @app.route('/package-inventory/client-cert/new', methods=["POST"])
-def get_client_csr():
+def post_client_csr():
+    """
+    Method that receives a Certificate Signing Request (CSR) from a client.
+    We take the submitted CSR and sign it and save the certificate and send
+    back a 301 redirect to a cert download route
+    params:
+      None: only POSTed request data is used
+    returns:
+      Response: 301 redirect to /package-inventory/client-cert/<cert-name>
+    """
     client = "fnunbob.localdomain"
     certdir = "/home/julian/Projects/client-cert-auth/intermediate-ca"
     resp = Response(response = "", status = 200, content_type = "application/json")
-    #response.content_type = "application/json"
-    #response.status = 200
     rc = sign_csr(certdir, client, request.data)
 
     if rc == False:
@@ -85,20 +129,10 @@ def get_client_csr():
     else:
         outcert  = certdir + "/newcerts/" + client + ".cert.pem"
         if os.path.isfile(outcert):
-            jdata = []
-            jdata.append({'status': "Sending signed certificate"})
-            fh = open(outcert ,"r")
-            jdata.append({'signature': fh.read()})
-            fh.close()
-            print("get_client_csr: Sending signed cert from %s." % outcert)
-            print("get_client_csr: Sending JSON: %s." % json.JSONEncoder().encode( jdata ))
-            #resp.status = ("{'signature': '%s'}" % cc)
-            resp.status = json.JSONEncoder().encode( jdata )
-            resp.status_code = 200
+            return redirect("https://inventory-master.localdomain/package-inventory/client-cert/" + client + ".cert.pem", code=301)
         else:
-            resp.status_code   = 400
+            resp.status_code   = 404
             resp.status = ("{'ERROR': 'Signed cert cannot be found for %s.'}" % client)
-    #print("get_client_csr: Sending response: " % str(resp.status))
     return(resp)
 
 def sign_csr(certdir, client, csr):
@@ -112,10 +146,6 @@ def sign_csr(certdir, client, csr):
      String: certificate to send back to client
     """
     print("sign_csr: Signing csr for %s." % client)
-    print("sign_csr: Signing CSR: %s" % csr)
-    #client = jdata['hostname']
-    #csr = jdata['csr']
-
     # Save the CSR data to disk for processing
     csrconf  = certdir + "/intermediate-openssl.conf"
     csrdir   = certdir + "/csr"
@@ -141,11 +171,6 @@ def sign_csr(certdir, client, csr):
         print("sign_csr: CSR file, %s, doesn't exist or has zero size." % csrfile)
         abort(400)
 
-    #sign_cert = ("openssl ca -config %s -in %s   "
-    #             "-passin file:%s -batch -out %s "
-    #             "-extensions server_cert "
-    #             "-days 375 -notext -md sha256 "
-    #             % (csrconf, csrfile, passfile, outcert) )
     sign_cert = ("openssl ca -config %s -in %s   "
                  "-passin file:%s -batch -out %s "
                  "-extensions v3_req -extfile %s "
@@ -154,7 +179,6 @@ def sign_csr(certdir, client, csr):
 
     print("sign_csr: create cert in %s with %s" % (outcert, sign_cert))
     output = subprocess.getoutput(sign_cert)
-    #print("sign_csr: Received command status %s from cert signing." % output)
     return(output)
 
 def validate_input(request):

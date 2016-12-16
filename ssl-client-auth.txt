@@ -535,7 +535,8 @@ This can help identify any stray certificates that don't belong in the CA chain.
 References
 ==========
 There is a lot of material on this difficult subject; you mileage will vary, but
-below is a selection of articles that were useful preparing this document.
+below is a selection of articles that were useful preparing this document. Note
+how many are related to the Python side of things.
 
 [1] https://pypi.python.org/pypi/blitz-ca/0.1.1 - Python local CA; not used here
 [2] http://stackoverflow.com/questions/33504746/doing-ssl-client-authentication-is-python
@@ -571,3 +572,5 @@ How to get past certificate database errors when re-requesting a replacement
 Getting openssl to report the certificates in use on a server.
 [17] http://stackoverflow.com/questions/10175812/how-to-create-a-self-signed-certificate-with-opensslhttp://stackoverflow.com/questions/10175812/how-to-create-a-self-signed-certificate-with-openssl
 Perhaps a better guide to correctly setting up root CA to self-sign trusted certs
+[18] http://serverfault.com/questions/453300/openssl-client-authentication-error-tlsv1-alert-unknown-ca-ssl-alert-numbe
+Another problem that can occur when using openssl to diagnose http 400 errors
