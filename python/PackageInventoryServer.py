@@ -41,13 +41,13 @@ def get_inventory_package(hostname):
 
 @app.route('/package-inventory/packages/new', methods=["POST"])
 def post_inventory_package():
-"""
-Route to accept a list of packages
-params:
-  JSON data identifying client and list of packages
-returns:
-  Response object indicating the status
-"""
+    """
+    Route to accept a list of packages
+    params:
+      JSON data identifying client and list of packages
+    returns:
+      Response object indicating the status
+    """
     resp = Response(response = "", status = 200, content_type = "application/json")
     print("post_inventory_package: Validating package data: %s" % request)
     if validate_input(request) == False:

@@ -301,7 +301,7 @@ Provide a wrapper for uwsgi to launch the Flask application, create a file
 describing how to run the application, called, say, application.ini, with
 
 [uwsgi]
-module = wsgi
+module = PackageInventoryServer
 
 master = true
 processes = 5
@@ -309,6 +309,7 @@ processes = 5
 socket = application.sock
 chmod-socket = 666
 vacuum = true
+http = 127.0.0.1:5674
 
 die-on-term = true
 
@@ -338,7 +339,7 @@ server {
         root   html;
         index  index.html index.htm;
         include uwsgi_params;
-        uwsgi_pass unix:/var/www/application/application.sock;
+        uwsgi_pass unix:/tmp/application.sock;
     }
 }
 
@@ -357,7 +358,7 @@ resource is returnned with a '400' bad request: No required SSL certificate was 
 Testing with cURL:
 Create a key and CSR,
 openssl req -newkey rsa:1024 -keyout fnunbob.key -nodes -config intermediate-openssl.conf -out fnunbob.csr
-enerating a 1024 bit RSA private key
+generating a 1024 bit RSA private key
 ...........++++++
 ............................................................................++++++
 writing new private key to 'fnunbob.key'
@@ -564,7 +565,7 @@ without requiring a cert; everything else does; we're not bothered if it
 doesn't work for one browser or another.
 [13] https://support.globalsign.com/customer/portal/articles/1353601-converting-certificates---openssl
 Converting certs and keys from one format to another. Lots of sites will do this
-[14] https://kb.wisc.edu/middleware/page.php?id=4064https://kb.wisc.edu/middleware/page.php?id=4064
+[14] https://kb.wisc.edu/middleware/page.php?id=4064
 Verifying that a certificate and key match.
 [15] http://stackoverflow.com/questions/9496698/how-to-revoke-an-openssl-certificate-when-you-dont-have-the-certificate
 How to get past certificate database errors when re-requesting a replacement
@@ -574,3 +575,7 @@ Getting openssl to report the certificates in use on a server.
 Perhaps a better guide to correctly setting up root CA to self-sign trusted certs
 [18] http://serverfault.com/questions/453300/openssl-client-authentication-error-tlsv1-alert-unknown-ca-ssl-alert-numbe
 Another problem that can occur when using openssl to diagnose http 400 errors
+[19] http://pages.cs.wisc.edu/~zmiller/ca-howto/ - General root CA setup
+[20] http://stackoverflow.com/questions/27611193/curl-ssl-with-self-signed-certificate
+simple answer that can help check that the web server is using the expected
+certs. Getting this right makes life much easier.
